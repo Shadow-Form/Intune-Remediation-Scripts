@@ -1,48 +1,47 @@
 
 # Templates Overview
 
-This directory contains reusable, production-quality templates for building **Microsoft Intune detection and remediation scripts**. These templates are designed to give you a solid, consistent foundation while still being flexible enough for customization.
+This directory contains reusable, production-quality templates for building **Microsoft Intune detection and remediation scripts**. They provide a consistent, maintainable structure while remaining flexible enough for customization.
 
 All templates follow Intune-friendly conventions:
 - Structured JSON output
 - Consistent exit codes (0 = compliant, 1 = needs remediation)
-- Clear parameter usage and documentation
-- Support for both machine-level and user-level scenarios (where applicable)
+- Clear parameter usage with descriptive comments
+- Version comparison based on normalized version strings
+- Machine-level and per-user logic (where applicable
+- Verbose-mode boolean parameter
 
 ---
 
 ## Detection Templates
 
-### 1. **Detect-AppVersion-Full.ps1**
-A comprehensive detection script template supporting advanced scenarios.
+### **Detect-AppVersion-Full.ps1**
+A complete detection script template supporting advanced scenarios.
 
 **Includes:**
-- Machine-path scanning
+- Machine-path scanning (file or directory patterns)
 - Per-user profile scanning (SYSTEM context)
 - Windows Uninstall registry scanning
-- Version normalization and comparison
-- Robust logging with retries
-- Retry logic for file/registry enumeration
-- Detailed comments that explain which functions use each parameter
+- Version normalization and comparison helpers
+- Logging with retries
+- Retry wrapper for file/registry enumeration
+- Detailed comments mapping parameters to functions
 
 **Best for:**
 - Production deployments
 - Complex application layouts
-- Scenarios requiring registry-based detection or multiple install scopes
+- Mixed machine/per-user install footprints
+- Scenarios requiring registry-based detection
 
----
-
-### 2. **Detect-AppVersion-Minimal.ps1**
+### **Detect-AppVersion-Minimal.ps1**
 A streamlined detection template optimized for hands-on sessions, workshops, or simple applications.
 
 **Simplifications:**
-- Machine-path scanning only (default)
-- Optional registry scan (boolean)
-- Simplified logging (single write, no retry)
-- No retry wrapper around main scan
+- Machine-path scanning only by default, with optional registry scan
 - No per-user scanning
-- Direct boolean parameters (Intune‑friendly)
-- Clear, minimal control flow
+- No retry wrapper around main scan
+- Simple single-pass logging
+- Minimal control flow
 
 **Best for:**
 - Learning and onboarding
@@ -53,25 +52,56 @@ A streamlined detection template optimized for hands-on sessions, workshops, or 
 
 ## Remediation Templates
 
-### 1. **Remediate-AppVersion-Full.ps1** *(coming soon)*
-A full remediation script template with:
-- Version-aware upgrade logic
-- Logging
-- Retry handling
-- Support for machine and per-user remediation paths
-- Compatible with both full and minimal detection templates
+### **Remediate-AppVersion-Full.ps1**
+A full-featured remediation engine capable of handling complex install/upgrade logic.
 
-### 2. **Remediate-AppVersion-Minimal.ps1** *(coming soon)*
-A simplified remediation script intended for hands-on tutorials. Pairs naturally with the minimal detection template.
+**Includes:**
+- Machine and per-user isntall detection
+- Download or pre-staged installer support
+- MSI/EXE detection and argument handling
+- Silent install execution with installer log generation
+- Process termination logic (graceful or forced)
+- MSI policy temporary override (DisableMSI=0)
+- Cleanup options:
+    - Per-user uninstall removal
+    - Orphaned uninstall registry entry cleanup
+    - Marker file creation
+- Detailed comments mapping parameters to functions
+
+**Best for:**
+- Production deployments
+- Complex or multi-scope applications
+- Environments requiring registry hygiene or per-user cleanup
+- Apps requiring process termination before install
+
+### **Remediate-AppVersion-Minimal.ps1**
+A streamlined remediation template optimized for hands-on sessions, workshops, or simple applications.
+
+**Simplifications:**
+- Machine-path scanning only by default, with optional registry scan
+- Single install attempt (no retries)
+- One unified `InstallerArgs` parameter for MSI/EXE
+- No process stopping logic
+- No per-user scanning or cleanup
+- No orphaned uninstall registry cleanup
+- Derived directory locations
+- Compact control flow
+
+**Best for:**
+- Learning and onboarding
+- Workshop/lab sessions
+- Simple applications with predictable install locations
 
 ---
 
 ## Intended Usage
 
-Each template is designed to serve as a starting point:
-- Update **AppDisplayName**, **MachinePaths**, and **ExpectedVersion**
-- Add product-specific install or update logic in remediation templates
-- Use the template as-is or extend sections for advanced needs
+Use these templates as a starting point for creating Intune-friendly detection/remediation packages:
+- Set `AppDisplayName`, `MachineExePaths`, and `ExpectedVersion`
+- Provide installer source information for remediation templates
+- Customize detection depth (registry, per-user, machine-only)
+- Choose the *full* or *minimal* variant based on complexity and audience
+- Keep detection scripts idempotent and remediation scripts repeatable
 
 ---
 
@@ -81,9 +111,9 @@ Each template is designed to serve as a starting point:
 /Templates
     Detect-AppVersion-Full.ps1
     Detect-AppVersion-Minimal.ps1
-    Remediate-AppVersion-Full.ps1     (coming soon)
-    Remediate-AppVersion-Minimal.ps1  (coming soon)
-    Templates_README.md               (this file)
+    Remediate-AppVersion-Full.ps1
+    Remediate-AppVersion-Minimal.ps1
+    README.md               (this file)
 ```
 
 ---
