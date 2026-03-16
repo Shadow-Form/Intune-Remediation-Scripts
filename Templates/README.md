@@ -8,7 +8,7 @@ All templates follow Intune-friendly conventions:
 - Consistent exit codes (0 = compliant, 1 = needs remediation)
 - Clear parameter usage with descriptive comments
 - Version comparison based on normalized version strings
-- Machine-level and per-user logic (where applicable
+- Machine-level and per-user logic (where applicable)
 - Verbose-mode boolean parameter
 
 ---
