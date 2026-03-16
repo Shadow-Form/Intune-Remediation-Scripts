@@ -1,12 +1,10 @@
 # Intune-Remediation-Scripts
 
-!PowerShell Badge
-!Intune Badge
-!Windows Badge
-!License: MIT
-!Status: Active
+![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?logo=powershell&logoColor=white)
+![Intune Badge](https://img.shields.io/badge/Microsoft%20Intune-2D7DDF?logo=microsoftintune&logoColor=white)
+![Windows Badge](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)
 
-Welcome!  
+Welcome!
 This repository contains a collection of **PowerShell-based Microsoft Intune remediation scripts**, including both **detection** and **remediation** logic. These scripts are meant to help IT admins diagnose and resolve common issues on Windows devices managed through Intune.
 
 This repository accompanies my conference session and serves as the single location for downloading all the templates, examples, and demo scripts referenced during the presentation.
