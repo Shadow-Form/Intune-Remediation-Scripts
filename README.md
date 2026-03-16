@@ -1,19 +1,47 @@
+
 # Intune-Remediation-Scripts
 
-![PowerShell](https://img.shields.io/badge/PowerShell-5391FE.svg?logo=powershell&logoColor=white)
-![](https://img.shields.io/badge/Intune-2D7DDF.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGZpbGw9Im5vbmUiIHZpZXdCb3g9IjAuNjkgNS40IDQwMCAzOTAuNjIiPgo8ZyBjbGlwLXBhdGg9InVybCgjY2xpcDBfMTA2NDFfMTY0KSI+CjxwYXRoIGQ9Ik0wLjY4NTE2NSA2NS44NTIzQzAuNjg1MTY1IDE0Ljc2NDggNjcuNDg1NSAtMTMuMjAyOSAxMTEuNjE2IDE5LjQwODNMMjA3LjU1MSA5MC4yNTM1TDI4OC41MTQgNDQuMzczQzMzMS4zMDUgMjEuMDM5NCAzOTkuODc0IDM3Ljc3NDggNDAwLjY4NSAxMDEuNTU5TDQwMC42ODUgMzM2LjYyMkM0MDAuNjg1IDM4Ny43MSAzMzUuODQ1IDQxNC4zNDMgMjkxLjcxNSAzODEuNzMyTDE5NC4wMzEgMzA5LjM0TDExMi45NzMgMzU1LjIzQzY5Ljc3ODMgMzc4Ljc4NCAwLjc1MjYyNSAzNjAuNzE0IDAuNzUyNjI1IDI5OC42MzdDMC43NTI2NTQgMjI0LjEyNCAwLjY4NTE2NSAyNTIuNzM0IDAuNjg1MTY1IDY1Ljg1MjNaIiBmaWxsPSJ1cmwoI3BhaW50MF9saW5lYXJfMTA2NDFfMTY0KSIvPgo8cGF0aCBkPSJNMC42ODUxNjUgNjUuODUyM0MwLjY4NTE2NSAxNC43NjQ4IDY3LjQ4NTUgLTEzLjIwMjkgMTExLjYxNiAxOS40MDgzTDIwNy41NTEgOTAuMjUzNUwyODguNTE0IDQ0LjM3M0MzMzEuMzA1IDIxLjAzOTQgMzk5Ljg3NCAzNy43NzQ4IDQwMC42ODUgMTAxLjU1OUw0MDAuNjg1IDMzNi42MjJDNDAwLjY4NSAzODcuNzEgMzM1Ljg0NSA0MTQuMzQzIDI5MS43MTUgMzgxLjczMkwxOTQuMDMxIDMwOS4zNEwxMTIuOTczIDM1NS4yM0M2OS43NzgzIDM3OC43ODQgMC43NTI2MjUgMzYwLjcxNCAwLjc1MjYyNSAyOTguNjM3QzAuNzUyNjU0IDIyNC4xMjQgMC42ODUxNjUgMjUyLjczNCAwLjY4NTE2NSA2NS44NTIzWiIgZmlsbD0idXJsKCNwYWludDFfcmFkaWFsXzEwNjQxXzE2NCkiLz4KPHBhdGggZD0iTTAuNjg1MTY1IDY1Ljg1MjNDMC42ODUxNjUgMTQuNzY0OCA2Ny40ODU1IC0xMy4yMDI5IDExMS42MTYgMTkuNDA4M0wyMDcuNTUxIDkwLjI1MzVMMjg4LjUxNCA0NC4zNzNDMzMxLjMwNSAyMS4wMzk0IDM5OS44NzQgMzcuNzc0OCA0MDAuNjg1IDEwMS41NTlMNDAwLjY4NSAzMzYuNjIyQzQwMC42ODUgMzg3LjcxIDMzNS44NDUgNDE0LjM0MyAyOTEuNzE1IDM4MS43MzJMMTk0LjAzMSAzMDkuMzRMMTEyLjk3MyAzNTUuMjNDNjkuNzc4MyAzNzguNzg0IDAuNzUyNjI1IDM2MC43MTQgMC43NTI2MjUgMjk4LjYzN0MwLjc1MjY1NCAyMjQuMTI0IDAuNjg1MTY1IDI1Mi43MzQgMC42ODUxNjUgNjUuODUyM1oiIGZpbGw9InVybCgjcGFpbnQyX3JhZGlhbF8xMDY0MV8xNjQpIi8+CjxwYXRoIGQ9Ik0xMTEuNjE2IDE5LjQwODNDNjcuNDg1NSAtMTMuMjAyOSAwLjY4NTE2NSAxNC43NjQ4IDAuNjg1MTY1IDY1Ljg1MjNWMjk1Ljc0MkMwLjY4NTE2NSAyOTAuMTUzIDMuNTMyNyAyNzkuMDI2IDMuNTMyNyAyNzkuMDI2QzE2LjY5NTQgMjM2LjAwMSA3Mi42NDg3IDIxOS44NjkgMTExLjM2IDI0OC4yMjNMMjkxLjcxNSAzODEuNzMyQzMzNS44NDUgNDE0LjM0MyA0MDAuNjg1IDM4Ny43MSA0MDAuNjg1IDMzNi42MjJWMTAxLjU1OUM0MDAuNjg1IDE0NS4yMDEgMzQzLjY0MyAxODkuMDExIDI4OS43NTUgMTUxLjA1MUwxMTEuNjE2IDE5LjQwODNaIiBmaWxsPSJ1cmwoI3BhaW50M19yYWRpYWxfMTA2NDFfMTY0KSIvPgo8cGF0aCBkPSJNMTExLjYxNiAxOS40MDgzQzY3LjQ4NTUgLTEzLjIwMjkgMC42ODUxNjUgMTQuNzY0OCAwLjY4NTE2NSA2NS44NTIzVjI5NS43NDJDMC42ODUxNjUgMjkwLjE1MyAzLjUzMjcgMjc5LjAyNiAzLjUzMjcgMjc5LjAyNkMxNi42OTU0IDIzNi4wMDEgNzIuNjQ4NyAyMTkuODY5IDExMS4zNiAyNDguMjIzTDI5MS43MTUgMzgxLjczMkMzMzUuODQ1IDQxNC4zNDMgNDAwLjY4NSAzODcuNzEgNDAwLjY4NSAzMzYuNjIyVjEwMS41NTlDNDAwLjY4NSAxNDUuMjAxIDM0My42NDMgMTg5LjAxMSAyODkuNzU1IDE1MS4wNTFMMTExLjYxNiAxOS40MDgzWiIgZmlsbD0idXJsKCNwYWludDRfcmFkaWFsXzEwNjQxXzE2NCkiIGZpbGwtb3BhY2l0eT0iMC4yNSIvPgo8cGF0aCBkPSJNMTExLjYxNiAxOS40MDgzQzY3LjQ4NTUgLTEzLjIwMjkgMC42ODUxNjUgMTQuNzY0OCAwLjY4NTE2NSA2NS44NTIzVjI5NS43NDJDMC42ODUxNjUgMjkwLjE1MyAzLjUzMjcgMjc5LjAyNiAzLjUzMjcgMjc5LjAyNkMxNi42OTU0IDIzNi4wMDEgNzIuNjQ4NyAyMTkuODY5IDExMS4zNiAyNDguMjIzTDI5MS43MTUgMzgxLjczMkMzMzUuODQ1IDQxNC4zNDMgNDAwLjY4NSAzODcuNzEgNDAwLjY4NSAzMzYuNjIyVjEwMS41NTlDNDAwLjY4NSAxNDUuMjAxIDM0My42NDMgMTg5LjAxMSAyODkuNzU1IDE1MS4wNTFMMTExLjYxNiAxOS40MDgzWiIgZmlsbD0idXJsKCNwYWludDVfcmFkaWFsXzEwNjQxXzE2NCkiIGZpbGwtb3BhY2l0eT0iMC41NSIvPgo8cGF0aCBkPSJNMTExLjYxNiAxNDkuNjkxQzY3LjQ4NTUgMTE3LjA4IDAuNjg1MTY1IDE0NS4wNDggMC42ODUxNjUgMTk2LjEzNUwwLjY4NTE3OSA2NS44NTIzQzAuNjg1MTgzIDE0Ljc2NDggNjcuNDg1NSAtMTMuMjAyOSAxMTEuNjE2IDE5LjQwODNDMTcwLjk5NiA2My4yODg4IDIzMC4zNzQgMTA3LjE3MSAyODkuNzU1IDE1MS4wNTFDMzQzLjY0MyAxODkuMDExIDQwMC42ODUgMTQ1LjIwMSA0MDAuNjg1IDEwMS41NTlWMjM0Ljg5QzQwMC42ODUgMjg1Ljk3OCAzMzMuODg1IDMxMy45NDYgMjg5Ljc1NSAyODEuMzM0QzIzMC4zNzQgMjM3LjQ1NCAxNzAuOTk2IDE5My41NzIgMTExLjYxNiAxNDkuNjkxWiIgZmlsbD0idXJsKCNwYWludDZfbGluZWFyXzEwNjQxXzE2NCkiLz4KPHBhdGggZD0iTTExMS42MTYgMTQ5LjY5MUM2Ny40ODU1IDExNy4wOCAwLjY4NTE2NSAxNDUuMDQ4IDAuNjg1MTY1IDE5Ni4xMzVMMC42ODUxNzkgNjUuODUyM0MwLjY4NTE4MyAxNC43NjQ4IDY3LjQ4NTUgLTEzLjIwMjkgMTExLjYxNiAxOS40MDgzQzE3MC45OTYgNjMuMjg4OCAyMzAuMzc0IDEwNy4xNzEgMjg5Ljc1NSAxNTEuMDUxQzM0My42NDMgMTg5LjAxMSA0MDAuNjg1IDE0NS4yMDEgNDAwLjY4NSAxMDEuNTU5VjIzNC44OUM0MDAuNjg1IDI4NS45NzggMzMzLjg4NSAzMTMuOTQ2IDI4OS43NTUgMjgxLjMzNEMyMzAuMzc0IDIzNy40NTQgMTcwLjk5NiAxOTMuNTcyIDExMS42MTYgMTQ5LjY5MVoiIGZpbGw9InVybCgjcGFpbnQ3X3JhZGlhbF8xMDY0MV8xNjQpIiBmaWxsLW9wYWNpdHk9IjAuMzUiLz4KPC9nPgo8ZGVmcz4KPGxpbmVhckdyYWRpZW50IGlkPSJwYWludDBfbGluZWFyXzEwNjQxXzE2NCIgeDE9IjE3MS41MDEiIHkxPSIzOTYuMDI2IiB4Mj0iMzE0LjI1NiIgeTI9IjkwLjU2NDYiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KPHN0b3Agb2Zmc2V0PSIwLjAyIiBzdG9wLWNvbG9yPSIjMTE2OURBIi8+CjxzdG9wIG9mZnNldD0iMC40MzQ3ODQiIHN0b3AtY29sb3I9IiMwMTUxQkQiLz4KPHN0b3Agb2Zmc2V0PSIwLjYxNDQzNiIgc3RvcC1jb2xvcj0iIzAxNERCNyIvPgo8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMxMjZBRDkiLz4KPC9saW5lYXJHcmFkaWVudD4KPHJhZGlhbEdyYWRpZW50IGlkPSJwYWludDFfcmFkaWFsXzEwNjQxXzE2NCIgY3g9IjAiIGN5PSIwIiByPSIxIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgZ3JhZGllbnRUcmFuc2Zvcm09InRyYW5zbGF0ZSgzNTguNjU2IC00OC43MDQpIHJvdGF0ZSgxMTAuMjI0KSBzY2FsZSgyOTIuMjQ4IDIxOC45MTcpIj4KPHN0b3Agb2Zmc2V0PSIwLjQyMjk2NiIgc3RvcC1jb2xvcj0iIzAwNEFGRiIgc3RvcC1vcGFjaXR5PSIwLjEiLz4KPHN0b3Agb2Zmc2V0PSIwLjcyODY3MiIgc3RvcC1jb2xvcj0iIzAxNERCOSIvPgo8c3RvcCBvZmZzZXQ9IjAuODM2MTM1IiBzdG9wLWNvbG9yPSIjMDE0REI5IiBzdG9wLW9wYWNpdHk9IjAuOSIvPgo8c3RvcCBvZmZzZXQ9IjAuOTU1IiBzdG9wLWNvbG9yPSIjMDE0REI5IiBzdG9wLW9wYWNpdHk9IjAiLz4KPC9yYWRpYWxHcmFkaWVudD4KPHJhZGlhbEdyYWRpZW50IGlkPSJwYWludDJfcmFkaWFsXzEwNjQxXzE2NCIgY3g9IjAiIGN5PSIwIiByPSIxIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgZ3JhZGllbnRUcmFuc2Zvcm09InRyYW5zbGF0ZSg1NC4wODIxIDM4NC4wODcpIHJvdGF0ZSgtNzMuNjQzMikgc2NhbGUoMjMyLjY2OCAyODMuNDE5KSI+CjxzdG9wIG9mZnNldD0iMC4wOTA4NTMyIiBzdG9wLWNvbG9yPSIjMDA0QUZGIiBzdG9wLW9wYWNpdHk9IjAuMSIvPgo8c3RvcCBvZmZzZXQ9IjAuNTYwMzYiIHN0b3AtY29sb3I9IiMwMTREQjkiLz4KPHN0b3Agb2Zmc2V0PSIwLjc0OTQ2NiIgc3RvcC1jb2xvcj0iIzAxNERCOSIgc3RvcC1vcGFjaXR5PSIwLjk5Ii8+CjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzAxNERCOSIgc3RvcC1vcGFjaXR5PSIwIi8+CjwvcmFkaWFsR3JhZGllbnQ+CjxyYWRpYWxHcmFkaWVudCBpZD0icGFpbnQzX3JhZGlhbF8xMDY0MV8xNjQiIGN4PSIwIiBjeT0iMCIgcj0iMSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIGdyYWRpZW50VHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDM5LjQ0NCA1LjQwMTAxKSByb3RhdGUoMTM0LjA2OCkgc2NhbGUoNTYzLjk1NyA0MzQuMzc0KSI+CjxzdG9wIG9mZnNldD0iMC4yNDkzMjIiIHN0b3AtY29sb3I9IiMyM0MwRkUiLz4KPHN0b3Agb2Zmc2V0PSIwLjcxNzIwNyIgc3RvcC1jb2xvcj0iIzIzQzBGRSIvPgo8c3RvcCBvZmZzZXQ9IjAuOTk1MTY4IiBzdG9wLWNvbG9yPSIjMUM5MUZGIi8+CjwvcmFkaWFsR3JhZGllbnQ+CjxyYWRpYWxHcmFkaWVudCBpZD0icGFpbnQ0X3JhZGlhbF8xMDY0MV8xNjQiIGN4PSIwIiBjeT0iMCIgcj0iMSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIGdyYWRpZW50VHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTE5Ljk2MSAzNy4xMTAzKSByb3RhdGUoNDUuOTA5Mikgc2NhbGUoNDAzLjQ1NyA5NS45Nzg5KSI+CjxzdG9wIG9mZnNldD0iMC4xNjUiIHN0b3AtY29sb3I9IiMwOTZERDYiIHN0b3Atb3BhY2l0eT0iMCIvPgo8c3RvcCBvZmZzZXQ9IjAuNDg0MjMzIiBzdG9wLWNvbG9yPSIjMDk2REQ2Ii8+CjxzdG9wIG9mZnNldD0iMC45MDA1MDUiIHN0b3AtY29sb3I9IiMwODc2REUiIHN0b3Atb3BhY2l0eT0iMC44MTM4NjgiLz4KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDI5QUZGIiBzdG9wLW9wYWNpdHk9IjAiLz4KPC9yYWRpYWxHcmFkaWVudD4KPHJhZGlhbEdyYWRpZW50IGlkPSJwYWludDVfcmFkaWFsXzEwNjQxXzE2NCIgY3g9IjAiIGN5PSIwIiByPSIxIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgZ3JhZGllbnRUcmFuc2Zvcm09InRyYW5zbGF0ZSgzODUuNzc2IDI0NS4wMjIpIHJvdGF0ZSg5MS42MDk5KSBzY2FsZSg2NC43OTkgNTguMzU1NSkiPgo8c3RvcCBzdG9wLWNvbG9yPSIjMDA2OEIzIi8+CjxzdG9wIG9mZnNldD0iMC45MyIgc3RvcC1jb2xvcj0iIzAwNkNCOCIgc3RvcC1vcGFjaXR5PSIwIi8+CjwvcmFkaWFsR3JhZGllbnQ+CjxsaW5lYXJHcmFkaWVudCBpZD0icGFpbnQ2X2xpbmVhcl8xMDY0MV8xNjQiIHgxPSIxMTQuNzIiIHkxPSI5Ny41MjI3IiB4Mj0iMTgyLjA2NyIgeTI9IjM4My42OTkiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KPHN0b3Agc3RvcC1jb2xvcj0iIzkyRUVGRSIvPgo8c3RvcCBvZmZzZXQ9IjAuNTY0NTU5IiBzdG9wLWNvbG9yPSIjMzVEREZGIi8+CjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzA4QjFGOSIvPgo8L2xpbmVhckdyYWRpZW50Pgo8cmFkaWFsR3JhZGllbnQgaWQ9InBhaW50N19yYWRpYWxfMTA2NDFfMTY0IiBjeD0iMCIgY3k9IjAiIHI9IjEiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiBncmFkaWVudFRyYW5zZm9ybT0idHJhbnNsYXRlKDY3Ljc4MDcgNS40MDExKSByb3RhdGUoNjkuNDYxKSBzY2FsZSg5OS42NjM3IDgwLjQ5ODgpIj4KPHN0b3Agc3RvcC1jb2xvcj0iI0NDRjlGRiIgc3RvcC1vcGFjaXR5PSIwLjkzIi8+CjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzM1RERGRiIvPgo8L3JhZGlhbEdyYWRpZW50Pgo8Y2xpcFBhdGggaWQ9ImNsaXAwXzEwNjQxXzE2NCI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iNDAwIiBmaWxsPSJ3aGl0ZSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC42ODUxODEgMC43MTM1MDEpIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+)
-![Windows Badge](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)
+<!-- Badge Section -->
+<p>
+  <img src="https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/powershell.svg" width="20" />
+  <img src="https://img.shields.io/badge/PowerShell-5391FE?style=flat" />
+</p>
 
-Welcome!
-This repository contains a collection of **PowerShell-based Microsoft Intune remediation scripts**, including both **detection** and **remediation** logic. These scripts are meant to help IT admins diagnose and resolve common issues on Windows devices managed through Intune.
+<p>
+  <img src="https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/microsoft-intune.svg" width="20" />
+  <img src="https://img.shields.io/badge/Intune-2D7DDF?style=flat" />
+</p>
 
-This repository accompanies my conference session and serves as the single location for downloading all the templates, examples, and demo scripts referenced during the presentation.
+<p>
+  <img src="https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/microsoft-windows.svg" width="20" />
+  <img src="https://img.shields.io/badge/Windows-0078D6?style=flat" />
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat" />
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/Status-Active-brightgreen?style=flat" />
+</p>
+
+---
+
+## Overview
+This repository provides a curated collection of **Microsoft Intune remediation scripts** designed to support enterprise endpoint administrators and automation engineers. The scripts are written in **PowerShell** and organized into **detection** and **remediation** components that align with Intune's remediation framework.
+
+These resources were originally assembled for a conference session and serve as a reference library for demonstrations, hands-on labs, and real-world deployment scenarios.
 
 ---
 
 ## Repository Structure
 
-```
+- [Detection](./Detection) — Scripts used to determine compliance or configuration state.
+- [Remediation](./Remediation) — Scripts that correct issues identified by the detection logic.
+- [Templates](./Templates) — Reusable foundations for creating new detection/remediation scripts.
+- [Examples](./Examples) — Supplemental reference scripts and session materials.
+
+```text
 /Detection        # Intune detection scripts
 /Remediation      # Intune remediation scripts
 /Templates        # Starter templates for building your own scripts
@@ -24,44 +52,56 @@ This repository accompanies my conference session and serves as the single locat
 
 ## How to Use These Scripts
 
-1. Browse to the script you want.
-2. Download it using the **Raw** button or GitHub's file viewer.
-3. In Intune, navigate to:
-   - Devices → Remediations → Create remediation
-4. Upload the detection and remediation scripts accordingly.
-5. Test thoroughly before deploying to production.
+1. Identify the script you want to deploy.
+2. Download it using **Raw** view or clone the repository.
+3. In Intune, go to:
+   - **Devices** → **Remediations** → **Create remediation**
+4. Upload the detection and remediation scripts as required.
+5. Assign to a test group, verify behavior, then deploy more broadly.
+
+---
+
+## Execution Behavior
+
+- **Detection scripts** should exit with:
+  - `0` → Compliant
+  - `1` → Non-compliant
+- **Remediation scripts** should correct the state and return `0` on success.
+
+Testing locally is recommended:
+```powershell
+# Run detection
+pwsh .\Detect-Something.ps1
+$LASTEXITCODE
+
+# Run remediation
+pwsh .\Remediate-Something.ps1
+```
 
 ---
 
 ## Requirements
-
-- Windows 10/11 device managed by Microsoft Intune  
-- Permissions in Intune to create and deploy remediations  
-- PowerShell  
-- Some scripts may require specific modules or OS components; these will be noted in the script header
+- Windows 10/11 device managed through Microsoft Intune
+- Appropriate Intune permissions to create and deploy remediations
+- PowerShell (5.x or 7.x depending on script requirements)
+- Additional module requirements documented in individual script headers
 
 ---
 
 ## Conference Release
-
-A tagged **Release** is available so you can download the exact scripts demonstrated during the session.  
-Check the **Releases** section of this repository.
+A tagged **Release** is available containing the exact scripts used during the session. This ensures attendees can easily follow demos or reproduce the workflows shown.
 
 ---
 
 ## Disclaimer
-
-All scripts are provided **as‑is**, with no warranties or guarantees.  
-Always validate and test in a non‑production environment prior to rollout.
+All scripts are provided **as-is** without warranty. Validate functionality in a controlled environment before deploying to production systems.
 
 ---
 
 ## Feedback & Contributions
-
-If you encounter issues, have suggestions, or want to request additional Intune remediation examples, feel free to open an **Issue** or submit a **Pull Request**.
+Feedback, suggestions, and contributions are welcome. Please open an **Issue** or submit a **Pull Request** if you would like to recommend improvements or add new remediation examples.
 
 ---
 
 ## License
-
-This repository is licensed under the **MIT License**.
+This project is licensed under the **MIT License**.
