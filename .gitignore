@@ -1,0 +1,27 @@
+# Ignore local VS Code files
+.vscode/
+*.code-workspace
+
+# Ignore Copilot agent & instruction files
+.github/agents/
+.github/copilot-instructions.md
+
+# Ignore local PowerShell artifacts
+*.ps1.local
+*.psm1.local
+*.psd1.local
+*.log
+*.bak
+*.tmp
+
+# Ignore secrets & environment variable files
+*.env
+*.env.local
+*.secrets.json
+
+# Ignore OS-level junk
+Thumbs.db
+.DS_Store
+
+# Allow .gitkeep
+!.gitkeep
