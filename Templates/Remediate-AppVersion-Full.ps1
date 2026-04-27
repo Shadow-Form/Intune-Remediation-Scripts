@@ -169,6 +169,7 @@ param(
       - Output JSON (AppName) and summary messages
     #>
     [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
     [string]$AppDisplayName,
 
     <#
@@ -179,6 +180,7 @@ param(
       - Post-install verification
     #>
     [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
     [string[]]$MachineExePaths,
 
     <#
@@ -199,6 +201,7 @@ param(
       - JSON output (ExpectedVersion)
     #>
     [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
     [string]$ExpectedVersion,
 
     <#
@@ -222,6 +225,20 @@ param(
     #>
     [Parameter()]
     [string]$InstallerLocalPath = "",
+
+    <#
+    PURPOSE
+      Optional expected SHA256 of the installer file for integrity verification.
+    #>
+    [Parameter()]
+    [string]$InstallerSha256 = "",
+
+    <#
+    PURPOSE
+      When true, require Authenticode signature to be valid for the downloaded installer.
+    #>
+    [Parameter()]
+    [bool]$RequireAuthenticode = $false,
 
     <#
     PURPOSE
@@ -379,6 +396,10 @@ if ($VerboseMode -and -not $PSBoundParameters.ContainsKey('Verbose')) {
     $VerbosePreference = 'Continue'
 }
 
+# Require modern PowerShell and enable strict mode
+#Requires -Version 5.1
+Set-StrictMode -Version Latest
+
 # ======================================================================
 # Utilities & Logging
 # ======================================================================
@@ -392,7 +413,12 @@ function Get-SafeFileName {
       - InstallerLogPath derivation (%TEMP%\<App>-install.log)
       - Marker file naming
     #>
-    param([string]$Name)
+    [CmdletBinding()]
+    param(
+      [Parameter(Mandatory=$true)]
+      [ValidateNotNullOrEmpty()]
+      [string]$Name
+    )
     $invalid = [System.IO.Path]::GetInvalidFileNameChars()
     $clean   = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
     $clean   = $clean.Trim().TrimEnd('.').TrimEnd()
@@ -419,13 +445,16 @@ function Write-Log {
     DETAILS
       Creates log directory if needed; minimal handling on write failures.
     #>
-    param([string]$Message)
+    [CmdletBinding()]
+    param(
+      [Parameter(Mandatory=$true)][ValidateNotNullOrEmpty()][string]$Message
+    )
     Write-Verbose $Message
     try {
-        $dir = Split-Path -Path $LogFile
-        if ($dir -and -not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
-        Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
-    } catch { }
+      $dir = Split-Path -Path $LogFile
+      if ($dir -and -not (Test-Path $dir)) { try { New-Item -Path $dir -ItemType Directory -Force | Out-Null } catch { Write-Verbose "Failed creating log directory $dir: $_" } }
+      Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+    } catch { Write-Verbose "Failed to write to log $LogFile: $_" }
 }
 
 # ======================================================================
@@ -440,6 +469,7 @@ function Format-Version {
       - Compare-Versions
       - Evaluation of detected versions (validity check)
     #>
+    [CmdletBinding()]
     param([string]$v)
     $v = ($v -replace ',', '.').Trim()
     if ($v -match '([0-9]+(?:\.[0-9]+)*)') { $v = $matches[1] } else { $v = '0' }
@@ -455,6 +485,7 @@ function Compare-Versions {
     USED BY
       - IsExpectedVersionInstalled and final evaluation
     #>
+    [CmdletBinding()]
     param([string]$Installed,[string]$Expected)
     $iv = Format-Version $Installed
     $ev = Format-Version $Expected
@@ -480,11 +511,16 @@ function Get-FileVersionInfoSafe {
       - Machine/per-user detection
       - Post-install verification
     #>
-    param([string]$Path)
-    $vi = (Get-Item -LiteralPath $Path).VersionInfo
-    $version = $vi.ProductVersion
-    if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
-    ($version -replace ',', '.').Trim()
+    [CmdletBinding()]
+    param(
+      [Parameter(Mandatory=$true)][ValidateNotNullOrEmpty()][string]$Path
+    )
+    try {
+      $vi = (Get-Item -LiteralPath $Path -ErrorAction Stop).VersionInfo
+      $version = $vi.ProductVersion
+      if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
+      return ($version -replace ',', '.').Trim()
+    } catch { Write-Verbose "Failed to read version info for $Path: $_"; return '' }
 }
 
 function Get-PerUserAppPaths {
@@ -524,13 +560,13 @@ function Get-PerUserAppPaths {
                         Get-ChildItem -Path $searchPath -File -ErrorAction SilentlyContinue |
                             ForEach-Object { $results += $_.FullName }
                     }
-                } catch { }
+                } catch { Write-Log "Per-user path expansion failed for $searchPath: $_" }
             }
         }
     return $results
 }
 
-function IsExpectedVersionInstalled {
+function Test-ExpectedVersionInstalled {
     <#
     PURPOSE
       Check machine and per-user locations for a compliant version.
@@ -540,6 +576,8 @@ function IsExpectedVersionInstalled {
     DETAILS
       Sets $script:detectedFilePath when a compliant instance is found.
     #>
+    [CmdletBinding()]
+    param()
     foreach ($p in $MachineExePaths) {
         # expand candidates from file/dir/pattern
         $candidates = @()
@@ -554,7 +592,7 @@ function IsExpectedVersionInstalled {
             } else {
                 $candidates = Get-ChildItem -Path $p -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
             }
-        } catch { }
+        } catch { Write-Log "Failed to expand candidates for $p: $_" }
 
         foreach ($candidate in $candidates) {
             if (-not (Test-Path -LiteralPath $candidate)) { continue }
@@ -613,7 +651,7 @@ function Get-Installer {
     USED BY
       - Main remediation flow before execution
     #>
-    param([string]$Url,[string]$LocalPath,[int]$MaxRetries,[int]$DelaySec)
+    param([string]$Url,[string]$LocalPath,[int]$MaxRetries,[int]$DelaySec,[string]$ExpectedSha256="",[bool]$RequireAuthenticode=$false)
     if ([string]::IsNullOrWhiteSpace($Url)) {
         if (-not [string]::IsNullOrWhiteSpace($LocalPath) -and (Test-Path -LiteralPath $LocalPath)) {
             Write-Log "Using pre-staged installer '$LocalPath'"
@@ -627,9 +665,35 @@ function Get-Installer {
         $attempt++
         try {
             Write-Log "Downloading installer (attempt $attempt) from $Url"
-            Invoke-WebRequest -Uri $Url -OutFile $LocalPath -UseBasicParsing
-            Write-Log "Download complete: '$LocalPath'"
-            return $true
+          if (-not $Url.ToLowerInvariant().StartsWith('https://')) {
+            Write-Log "Refusing to download installer over non-HTTPS URL: $Url"
+            return $false
+          }
+          Invoke-WebRequest -Uri $Url -OutFile $LocalPath
+          Write-Log "Download complete: '$LocalPath'"
+
+          # Integrity check if expected SHA256 provided
+          if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+            try {
+              $hash = (Get-FileHash -Path $LocalPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+              if ($hash -ne $ExpectedSha256.ToLowerInvariant()) {
+                Write-Log "Installer SHA256 mismatch: expected $ExpectedSha256, got $hash"
+                return $false
+              }
+              Write-Log "Installer SHA256 verified."
+            } catch { Write-Log "Failed to compute/verify installer hash: $_"; return $false }
+          }
+
+          # Authenticode signature check if required
+          if ($RequireAuthenticode) {
+            try {
+              $sig = Get-AuthenticodeSignature -FilePath $LocalPath -ErrorAction Stop
+              if ($sig.Status -ne 'Valid') { Write-Log "Authenticode signature invalid: $($sig.Status)"; return $false }
+              Write-Log "Authenticode signature is valid."
+            } catch { Write-Log "Authenticode check failed: $_"; return $false }
+          }
+
+          return $true
         } catch {
             Write-Log "Download attempt $attempt failed: $_"
             if ($attempt -lt $MaxRetries) {
@@ -703,8 +767,8 @@ function Uninstall-PerUserAppByName {
     #>
     param([string]$AppName)
     try {
-        $found = $false
-        Get-ChildItem HKU:\ -ErrorAction SilentlyContinue | ForEach-Object {
+      $found = $false
+      Get-ChildItem HKU:\ -ErrorAction SilentlyContinue | ForEach-Object {
             $sid = $_.PSChildName
             $root = "HKU:\$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
             if (-not (Test-Path $root)) { return }
@@ -716,16 +780,30 @@ function Uninstall-PerUserAppByName {
                     $cmd = $props.UninstallString
                     if ($cmd) {
                         Write-Log "Uninstalling per-user '$($props.DisplayName)' for SID $sid"
-                        $silentMsiexec = ($cmd -match 'msiexec\.exe') -and ($cmd -match '/qn|/quiet')
-                        $silentExe     = ($cmd -notmatch 'msiexec\.exe') -and ($cmd -match '/S|/silent|/quiet')
-
-                        if ($cmd -match 'msiexec\.exe' -or $cmd -match '/I|/X\{') {
-                            $run = $cmd + ($(if (-not $silentMsiexec) { ' /qn' } else { '' }))
-                            Start-Process -FilePath "cmd.exe" -ArgumentList "/c $run" -Wait -NoNewWindow
-                        } else {
-                            $run = $cmd + ($(if (-not $silentExe) { ' /S' } else { '' }))
-                            Start-Process -FilePath "cmd.exe" -ArgumentList "/c $run" -Wait -NoNewWindow
-                        }
+              # Parse uninstall command safely and execute with Start-Process
+              if ($cmd -match '"(?<exe>[^"]+)"(?<args>.*)') {
+                $exe = $matches['exe']
+                $args = $matches['args'].Trim()
+              } else {
+                $parts = $cmd -split '\s+',2
+                $exe = $parts[0]
+                $args = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+              }
+              try {
+                $resolved = $null
+                if (Test-Path -LiteralPath $exe) { $resolved = $exe }
+                else {
+                  $g = Get-Command -Name $exe -ErrorAction SilentlyContinue
+                  if ($g) { $resolved = $g.Source }
+                }
+                if (-not $resolved) { Write-Log "Uninstall executable not found/resolvable: $exe — skipping."; return }
+                # Allow msiexec or vendor exe only
+                if ($resolved.ToLowerInvariant().EndsWith('msiexec.exe') -or $resolved.ToLowerInvariant().EndsWith('.exe')) {
+                  Start-Process -FilePath $resolved -ArgumentList $args -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                } else {
+                  Write-Log "Uninstall target not allowed: $resolved — skipping."
+                }
+              } catch { Write-Log "Failed to run uninstall for $($props.DisplayName): $_" }
                     }
                 }
             }
@@ -775,20 +853,32 @@ function Remove-OrphanUninstallEntries {
                 if ($uninstall) {
                     Write-Log "Attempting uninstall for $($props.DisplayName): $uninstall"
                     try {
-                        if ($uninstall -match 'msiexec') {
-                            $run = $uninstall
-                            if ($run -notmatch '/qn|/quiet') { $run = "$run /qn" }
-                            Start-Process -FilePath "cmd.exe" -ArgumentList "/c $run" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-                        } else {
-                            if ($uninstall -match '"?([A-Za-z]:\\[^\"]+\.exe)"?') {
-                                $exe = $matches[1]
-                                $argsPart = $uninstall -replace [regex]::Escape($matches[0]), ''
-                                if ($argsPart -notmatch '/S|/silent|/quiet') { $argsPart = "$argsPart /S" }
-                                Start-Process -FilePath $exe -ArgumentList $argsPart -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                        try {
+                          # Parse uninstall string into exe and args
+                          if ($uninstall -match '"(?<exe>[^"]+)"(?<args>.*)') {
+                            $exe = $matches['exe']
+                            $argsPart = $matches['args'].Trim()
+                          } else {
+                            $parts = $uninstall -split '\s+',2
+                            $exe = $parts[0]
+                            $argsPart = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+                          }
+                          $resolvedExe = $null
+                          if (Test-Path -LiteralPath $exe) { $resolvedExe = $exe } else { $cmdFound = Get-Command -Name $exe -ErrorAction SilentlyContinue; if ($cmdFound) { $resolvedExe = $cmdFound.Source } }
+                          if (-not $resolvedExe) { Write-Log "Uninstall executable not found: $exe"; return }
+                          if ($resolvedExe.ToLowerInvariant().EndsWith('msiexec.exe')) {
+                            if ($argsPart -notmatch '/qn|/quiet') { $argsPart = "$argsPart /qn" }
+                            Start-Process -FilePath $resolvedExe -ArgumentList $argsPart -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                          } else {
+                            # Ensure reasonable executable (simple check: file exists and is .exe)
+                            if ($resolvedExe.ToLowerInvariant().EndsWith('.exe')) {
+                              if ($argsPart -notmatch '/S|/silent|/quiet') { $argsPart = "$argsPart /S" }
+                              Start-Process -FilePath $resolvedExe -ArgumentList $argsPart -Wait -NoNewWindow -ErrorAction SilentlyContinue
                             } else {
-                                Start-Process -FilePath "cmd.exe" -ArgumentList "/c $uninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                              Write-Log "Uninstall target not permitted: $resolvedExe"
                             }
-                        }
+                          }
+                        } catch { Write-Log "Uninstall attempt failed for $($props.DisplayName): $_" }
                     } catch { Write-Log "Uninstall attempt failed for $($props.DisplayName): $_" }
                 }
 
@@ -835,7 +925,7 @@ try {
     Write-Log "Starting remediation for '$AppDisplayName' (expected $ExpectedVersion)"
 
     # Early success?
-    if (IsExpectedVersionInstalled) {
+    if (Test-ExpectedVersionInstalled) {
         $intuneOutput.DetectedVersion = (Get-FileVersionInfoSafe -Path $script:detectedFilePath)
         $intuneOutput.Status = "UpToDate"
         Write-Log "Already up-to-date ($($intuneOutput.DetectedVersion) >= $ExpectedVersion)."
@@ -856,7 +946,7 @@ try {
     }
 
     # Retrieve installer (download or use pre-staged)
-    if (-not (Get-Installer -Url $InstallerUrl -LocalPath $InstallerLocalPath -MaxRetries $MaxRetries -DelaySec $RetryDelaySeconds)) {
+    if (-not (Get-Installer -Url $InstallerUrl -LocalPath $InstallerLocalPath -MaxRetries $MaxRetries -DelaySec $RetryDelaySeconds -ExpectedSha256 $InstallerSha256 -RequireAuthenticode $RequireAuthenticode)) {
         $intuneOutput.Status = "DownloadFailed"
         Write-Log "Failed to get installer."
         $intuneOutput | ConvertTo-Json -Compress; exit 1
@@ -914,7 +1004,7 @@ try {
 
     # Verify installation regardless of exit code (handles reboot-required scenarios)
     $finalDetected = $null
-    if (IsExpectedVersionInstalled) { $finalDetected = (Get-FileVersionInfoSafe -Path $script:detectedFilePath) }
+    if (Test-ExpectedVersionInstalled) { $finalDetected = (Get-FileVersionInfoSafe -Path $script:detectedFilePath) }
 
     # Cleanup tasks
     if ($RemovePerUserInstallsAfterMachineInstall) { Uninstall-PerUserAppByName -AppName $AppDisplayName }
@@ -925,16 +1015,14 @@ try {
         New-Item -Path (Join-Path $markerDir "$__safeName-$ExpectedVersion.marker") -ItemType File -Force | Out-Null
     }
 
-    # Remove downloaded installer if URL was used
-    if (-not [string]::IsNullOrWhiteSpace($InstallerUrl)) {
-        Remove-Item -Path $InstallerLocalPath -Force -ErrorAction SilentlyContinue
-        Write-Log "Removed downloaded installer."
-    }
-
     if ($finalDetected) {
         $intuneOutput.DetectedVersion = $finalDetected
         $intuneOutput.Status = "Fixed"
         Write-Log "Remediation succeeded: $finalDetected >= $ExpectedVersion"
+      # Remove downloaded installer only on successful remediation
+      if (-not [string]::IsNullOrWhiteSpace($InstallerUrl)) {
+        try { Remove-Item -Path $InstallerLocalPath -Force -ErrorAction SilentlyContinue; Write-Log "Removed downloaded installer." } catch { Write-Log "Failed to remove installer: $_" }
+      }
         $intuneOutput | ConvertTo-Json -Compress; exit 0
     } else {
         $intuneOutput.Status = "InstallFailedOrNotDetected"

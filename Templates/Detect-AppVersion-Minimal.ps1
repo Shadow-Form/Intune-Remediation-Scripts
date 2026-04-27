@@ -52,18 +52,21 @@
     - Initial verbosity configuration for Write-Verbose calls.
 #>
 
-[CmdletBinding(SupportsShouldProcess=$false)]
+[CmdletBinding(SupportsShouldProcess = $false)]
 param(
   # AppDisplayName → used by Get-SafeFileName, Write-Log, registry matching, JSON
-  [Parameter(Mandatory=$true)]
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNullOrEmpty()]
   [string]$AppDisplayName,
 
   # MachinePaths → used by machine scan → Get-FileVersionSafe
-  [Parameter(Mandatory=$true)]
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNullOrEmpty()]
   [string[]]$MachinePaths,
 
   # ExpectedVersion → compared in evaluation via Compare-Versions
-  [Parameter(Mandatory=$true)]
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNullOrEmpty()]
   [string]$ExpectedVersion,
 
   # UseRegistryScan → guards registry scan block in main (default: off)
@@ -71,6 +74,9 @@ param(
 
   # TriggerRemediationForMissingApp → controls exit code when not found or no valid instance (default: on)
   [bool]$TriggerRemediationForMissingApp = $true,
+
+  # AllowLocalLogging → when $true detection will write a local log; default is $false to remain read-only
+  [bool]$AllowLocalLogging = $false,
 
   # VerboseMode → enables verbose flow without -Verbose (default: off)
   [bool]$VerboseMode = $false
@@ -81,6 +87,10 @@ if ($VerboseMode -and -not $PSBoundParameters.ContainsKey('Verbose')) {
   $VerbosePreference = 'Continue'
 }
 
+# Require a modern PowerShell and enable strict mode for safer scripts
+#Requires -Version 5.1
+Set-StrictMode -Version Latest
+
 # --- Log path is always derived from AppDisplayName (no parameter) ---
 function Get-SafeFileName {
   <#
@@ -89,10 +99,15 @@ function Get-SafeFileName {
     USED BY
       Log path derivation (C:\Logs\Detect-<App>.log)
   #>
-  param([string]$Name)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Name
+  )
   $invalid = [System.IO.Path]::GetInvalidFileNameChars()
-  $clean   = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
-  $clean   = $clean.Trim().TrimEnd('.').TrimEnd()
+  $clean = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
+  $clean = $clean.Trim().TrimEnd('.').TrimEnd()
   if ([string]::IsNullOrWhiteSpace($clean)) { $clean = 'Application' }
   return $clean
 }
@@ -106,20 +121,27 @@ function Write-Log {
     USED BY
       Machine/registry scan notes and evaluation summary.
   #>
-  param([string]$Message)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Message
+  )
 
   Write-Verbose $Message
 
+  if (-not $AllowLocalLogging) { return }
   if (-not $LogFile) { return }
   $dir = Split-Path -Path $LogFile
   if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-    New-Item -Path $dir -ItemType Directory -Force | Out-Null
+    try { New-Item -Path $dir -ItemType Directory -Force | Out-Null } catch { Write-Verbose "Failed to create log directory $dir: $_" }
   }
 
   try {
     Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
-  } catch {
-    # Minimalism: no retry, don’t fail the script for logging issues
+  }
+  catch {
+    Write-Verbose "Failed to write to log file $LogFile: $_"
   }
 }
 
@@ -131,7 +153,11 @@ function Format-Version {
     USED BY
       Compare-Versions and the evaluation loop.
   #>
-  param([string]$v)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $false)]
+    [string]$v
+  )
   $v = ($v -replace ',', '.').Trim()
   if ($v -match '([0-9]+(?:\.[0-9]+)*)') { $v = $matches[1] } else { $v = '0' }
   $parts = $v.Split('.')
@@ -146,7 +172,15 @@ function Compare-Versions {
     USED BY
       Evaluation loop determining compliant vs outdated.
   #>
-  param([string]$Installed,[string]$Expected)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Installed,
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Expected
+  )
 
   $iv = Format-Version $Installed
   $ev = Format-Version $Expected
@@ -171,11 +205,22 @@ function Get-FileVersionSafe {
     USED BY
       Machine scan (file candidates) and registry file references (if present).
   #>
-  param([string]$Path)
-  $vi = (Get-Item -LiteralPath $Path).VersionInfo
-  $version = $vi.ProductVersion
-  if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
-  ($version -replace ',', '.').Trim()
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Path
+  )
+  try {
+    $vi = (Get-Item -LiteralPath $Path -ErrorAction Stop).VersionInfo
+    $version = $vi.ProductVersion
+    if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
+    return ($version -replace ',', '.').Trim()
+  }
+  catch {
+    Write-Verbose "Failed to read version info for $Path: $_"
+    return ''
+  }
 }
 
 # --- Minimal registry scan (optional) ---
@@ -186,12 +231,17 @@ function Get-RegistryAppEntries {
     USED BY
       Optional registry scan (DisplayVersion feeds evaluation).
   #>
-  param([string]$DisplayName)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$DisplayName
+  )
 
   $roots = @(
-    @{Hive='HKLM'; Path='SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'},
-    @{Hive='HKLM'; Path='SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall'},
-    @{Hive='HKCU'; Path='SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'}
+    @{Hive = 'HKLM'; Path = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+    @{Hive = 'HKLM'; Path = 'SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall' },
+    @{Hive = 'HKCU'; Path = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' }
   )
 
   $results = @()
@@ -203,17 +253,19 @@ function Get-RegistryAppEntries {
           $p = Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue
           if ($p -and $p.DisplayName -and $p.DisplayName -like "*$DisplayName*") {
             $results += [pscustomobject]@{
-              RegistryPath   = $_.PSPath
-              DisplayName    = $p.DisplayName
-              DisplayVersion = $p.DisplayVersion
-              InstallLocation= $p.InstallLocation
-              DisplayIcon    = $p.DisplayIcon
-              Scope          = ($_.PSPath -like 'HKEY_CURRENT_USER*') ? 'User' : 'Machine'
+              RegistryPath    = $_.PSPath
+              DisplayName     = $p.DisplayName
+              DisplayVersion  = $p.DisplayVersion
+              InstallLocation = $p.InstallLocation
+              DisplayIcon     = $p.DisplayIcon
+              Scope           = ($_.PSPath -like 'HKEY_CURRENT_USER*') ? 'User' : 'Machine'
             }
           }
-        } catch {}
+        }
+        catch { Write-Verbose "Registry entry read failed for $($_.PSPath): $_" }
       }
-    } catch {}
+    }
+    catch { Write-Verbose "Failed to enumerate registry path $base: $_" }
   }
   return $results
 }
@@ -238,19 +290,22 @@ foreach ($path in $MachinePaths) {
       $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
       if ($item -and $item.PSIsContainer) {
         $candidates = Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-      } else {
+      }
+      else {
         $candidates = @($path)
       }
-    } else {
+    }
+    else {
       $candidates = Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
     }
-  } catch {}
+  }
+  catch { Write-Verbose "Failed enumerating $path: $_" }
 
   foreach ($candidate in $candidates) {
     if (-not (Test-Path -LiteralPath $candidate)) { continue }
     $ver = Get-FileVersionSafe -Path $candidate
     Write-Log "[$AppDisplayName] Machine version '$ver' from '$candidate'"
-    $findings += [pscustomobject]@{ Source='File'; Path=$candidate; Version=$ver; Scope='Machine' }
+    $findings += [pscustomobject]@{ Source = 'File'; Path = $candidate; Version = $ver; Scope = 'Machine' }
   }
 }
 
@@ -260,9 +315,10 @@ if ($UseRegistryScan) {
     $reg = Get-RegistryAppEntries -DisplayName $AppDisplayName
     foreach ($r in $reg) {
       Write-Log "[$AppDisplayName] Registry '$($r.RegistryPath)' version '$($r.DisplayVersion)'"
-      $findings += [pscustomobject]@{ Source='Registry'; Path=$r.RegistryPath; Version=$r.DisplayVersion; Scope=($r.Scope) }
+      $findings += [pscustomobject]@{ Source = 'Registry'; Path = $r.RegistryPath; Version = $r.DisplayVersion; Scope = ($r.Scope) }
     }
-  } catch {
+  }
+  catch {
     Write-Log "[$AppDisplayName] Registry scan failed: $_"
   }
 }
@@ -278,8 +334,8 @@ if ($findings.Count -eq 0) {
 
 # --- Evaluate (first meaningful finding wins) ---
 $malformed = $null
-$outdated  = $null
-$ok        = $null
+$outdated = $null
+$ok = $null
 
 foreach ($f in $findings) {
   $raw = $f.Version
@@ -293,39 +349,41 @@ foreach ($f in $findings) {
   try {
     if (Compare-Versions -Installed $fmt -Expected $ExpectedVersion) {
       if (-not $ok) { $ok = $f }
-    } else {
+    }
+    else {
       if (-not $outdated) { $outdated = $f }
     }
-  } catch {
+  }
+  catch {
     if (-not $malformed) { $malformed = $f }
   }
 }
 
 if ($malformed) {
-  $Out.FilePath        = $malformed.Path
+  $Out.FilePath = $malformed.Path
   $Out.DetectedVersion = $malformed.Version
-  $Out.InstallScope    = $malformed.Scope
-  $Out.Status          = 'MalformedVersion'
+  $Out.InstallScope = $malformed.Scope
+  $Out.Status = 'MalformedVersion'
   Write-Log "[$AppDisplayName] Malformed version at '$($malformed.Path)': '$($malformed.Version)'"
   $Out | ConvertTo-Json -Compress | Out-Host
   exit 1
 }
 
 if ($outdated) {
-  $Out.FilePath        = $outdated.Path
+  $Out.FilePath = $outdated.Path
   $Out.DetectedVersion = $outdated.Version
-  $Out.InstallScope    = $outdated.Scope
-  $Out.Status          = if ($outdated.Scope -eq 'User') { 'UserScopeOutdated' } else { 'Outdated' }
+  $Out.InstallScope = $outdated.Scope
+  $Out.Status = if ($outdated.Scope -eq 'User') { 'UserScopeOutdated' } else { 'Outdated' }
   Write-Log "[$AppDisplayName] Outdated at '$($outdated.Path)': '$($outdated.Version)'"
   $Out | ConvertTo-Json -Compress | Out-Host
   exit 1
 }
 
 if ($ok) {
-  $Out.FilePath        = $ok.Path
+  $Out.FilePath = $ok.Path
   $Out.DetectedVersion = $ok.Version
-  $Out.InstallScope    = $ok.Scope
-  $Out.Status          = 'Compliant'
+  $Out.InstallScope = $ok.Scope
+  $Out.Status = 'Compliant'
   Write-Log "[$AppDisplayName] Compliant at '$($ok.Path)': '$($ok.Version)'"
   $Out | ConvertTo-Json -Compress | Out-Host
   exit 0
@@ -335,3 +393,6 @@ if ($ok) {
 $Out.Status = 'NotInstalled'
 Write-Log "[$AppDisplayName] No valid instances detected after evaluation."
 $Out | ConvertTo-Json -Compress | Out-Host
+
+# Explicit final exit to ensure Intune receives expected code
+if ($TriggerRemediationForMissingApp) { exit 1 } else { exit 0 }

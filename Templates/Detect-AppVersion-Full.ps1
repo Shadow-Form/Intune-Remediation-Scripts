@@ -105,7 +105,8 @@
 [CmdletBinding(SupportsShouldProcess = $false)]
 param (
     # AppDisplayName → Used by Get-SafeFileName (log path), Write-Log prefixes, registry matching, JSON output
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
     [string]$AppDisplayName,
 
     # MachinePaths → Used by machine scan to enumerate candidate files; fed to Get-FileVersionInfoSafe and Write-Log
@@ -117,11 +118,13 @@ param (
     [string[]]$PerUserRelativePaths = @(),
 
     # ExpectedVersion → Compared in main evaluation via Compare-Versions; included in JSON output
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
     [string]$ExpectedVersion,
 
     # RegistryDisplayName → Used by Get-RegistryAppEntries when UseRegistryScan is enabled; influences registry filtering
     [Parameter()]
+    [ValidateNotNullOrEmpty()]
     [string]$RegistryDisplayName = $AppDisplayName,
 
     # UseMachineScan → Controls inclusion of machine-scan block in main operation
@@ -151,6 +154,9 @@ param (
     # LogRetryDelay → Write-Log retry delay (seconds)
     [int]$LogRetryDelay = 2,
 
+    # AllowLocalLogging → when $true detection will write a local log; default is $false to remain read-only
+    [bool]$AllowLocalLogging = $false,
+
     # VerboseMode → Enables verbose flow without -Verbose; consumed by initial verbosity configuration
     [switch]$VerboseMode
 )
@@ -159,6 +165,10 @@ param (
 if ($VerboseMode -and -not $PSBoundParameters.ContainsKey('Verbose')) {
     $VerbosePreference = 'Continue'
 }
+
+# Require modern PowerShell and enable strict mode
+#Requires -Version 5.1
+Set-StrictMode -Version Latest
 
 # ======================================================================
 # Logging & Utilities
@@ -176,10 +186,15 @@ function Get-SafeFileName {
     DETAILS
         Replaces invalid characters, trims trailing dots/spaces, outputs “Application” if input is empty.
     #>
-    param([string]$Name)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Name
+    )
     $invalid = [System.IO.Path]::GetInvalidFileNameChars()
-    $clean   = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
-    $clean   = $clean.Trim().TrimEnd('.').TrimEnd()
+    $clean = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
+    $clean = $clean.Trim().TrimEnd('.').TrimEnd()
     if ([string]::IsNullOrWhiteSpace($clean)) { $clean = 'Application' }
     return $clean
 }
@@ -187,7 +202,7 @@ function Get-SafeFileName {
 # Derive default log path if not provided
 if (-not $PSBoundParameters.ContainsKey('LogFile') -or [string]::IsNullOrWhiteSpace($LogFile)) {
     $safeName = Get-SafeFileName -Name $AppDisplayName
-    $LogFile  = "C:\Logs\Detect-$safeName.log"
+    $LogFile = "C:\Logs\Detect-$safeName.log"
 }
 
 function Write-Log {
@@ -203,27 +218,38 @@ function Write-Log {
     DETAILS
         Creates the log directory if needed; retries write operations up to MaxLogRetries with LogRetryDelay.
     #>
-    param ([string]$Message)
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Message
+    )
 
     Write-Verbose $Message
 
-    if (-not $LogFile) { return }
+        if (-not $AllowLocalLogging) { return }
+        if (-not $LogFile) { return }
 
     $logDirectory = Split-Path -Path $LogFile
     if (-not (Test-Path $logDirectory)) {
-        New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
+        try { New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null } catch { Write-Verbose "Failed to create log directory $logDirectory: $_" }
     }
 
     for ($i = 1; $i -le $MaxLogRetries; $i++) {
         try {
             Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
             break
-        } catch [System.IO.IOException] {
+        }
+        catch [System.IO.IOException] {
             if ($i -eq $MaxLogRetries) {
                 Write-Verbose "Failed to write to log file after $MaxLogRetries attempts: $LogFile"
                 throw
             }
             Start-Sleep -Seconds $LogRetryDelay
+        }
+        catch {
+            Write-Verbose "Unexpected error writing to log: $_"
+            break
         }
     }
 }
@@ -240,10 +266,21 @@ function Invoke-OperationRetry {
     DETAILS
         Logs each attempt; returns $true on success or $false after final failure.
     #>
-    param ([int]$MaxRetries,[int]$RetryDelay,[scriptblock]$Operation)
+    param (
+        [Parameter(Mandatory = $true)][int]$MaxRetries,
+        [Parameter(Mandatory = $true)][int]$RetryDelay,
+        [Parameter(Mandatory = $true)][scriptblock]$Operation
+    )
     for ($i = 1; $i -le $MaxRetries; $i++) {
-        try { Write-Log "Attempt $i of $MaxRetries"; & $Operation; return $true }
-        catch { Write-Log "Attempt $i failed: $_"; if ($i -lt $MaxRetries) { Start-Sleep -Seconds $RetryDelay } else { return $false } }
+        try {
+            Write-Log "Attempt $i of $MaxRetries"
+            & $Operation
+            return $true
+        }
+        catch {
+            Write-Log "Attempt $i failed: $_"
+            if ($i -lt $MaxRetries) { Start-Sleep -Seconds $RetryDelay } else { return $false }
+        }
     }
 }
 
@@ -263,6 +300,7 @@ function Format-Version {
     DETAILS
         Ensures a 4-part dotted version by padding with zeros; returns “0” when no numeric pattern is found.
     #>
+    [CmdletBinding()]
     param([string]$v)
     $v = ($v -replace ',', '.').Trim()
     if ($v -match '([0-9]+(?:\.[0-9]+)*)') { $v = $matches[1] } else { $v = '0' }
@@ -282,7 +320,11 @@ function Compare-Versions {
     DETAILS
         Returns $true iff installed >= expected; otherwise $false. Handles variable component lengths safely.
     #>
-    param([string]$InstalledVersion,[string]$ExpectedVersion)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$InstalledVersion,
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ExpectedVersion
+    )
 
     $iv = Format-Version $InstalledVersion
     $ev = Format-Version $ExpectedVersion
@@ -312,11 +354,19 @@ function Get-FileVersionInfoSafe {
     DETAILS
         Falls back to FileVersion when ProductVersion is unavailable; trims and standardizes punctuation.
     #>
-    param([string]$Path)
-    $vi = (Get-Item -LiteralPath $Path).VersionInfo
-    $version = $vi.ProductVersion
-    if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
-    ($version -replace ',', '.').Trim()
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path
+    )
+    try {
+        $vi = (Get-Item -LiteralPath $Path -ErrorAction Stop).VersionInfo
+        $version = $vi.ProductVersion
+        if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
+        return ($version -replace ',', '.').Trim()
+    }
+    catch { Write-Verbose "Failed to read version info for $Path: $_"; return '' }
 }
 
 # ======================================================================
@@ -334,9 +384,10 @@ function Get-PerUserAppPaths {
     DETAILS
         Excludes default/system profiles; handles directories/wildcards by enumerating files when necessary.
     #>
+    [CmdletBinding()]
     param(
-        [string[]]$RelativePaths,
-        [string[]]$Exclusions = @('Public','Default','Default User','All Users','WDAGUtilityAccount')
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string[]]$RelativePaths,
+        [string[]]$Exclusions = @('Public', 'Default', 'Default User', 'All Users', 'WDAGUtilityAccount')
     )
     if (-not $RelativePaths -or $RelativePaths.Count -eq 0) { return @() }
     $userRoot = 'C:\Users'
@@ -344,27 +395,30 @@ function Get-PerUserAppPaths {
 
     $results = @()
     Get-ChildItem -LiteralPath $userRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $Exclusions -notcontains $_.Name } |
-        ForEach-Object {
-            $userHome = $_.FullName
-            foreach ($rel in $RelativePaths) {
-                $searchPath = Join-Path $userHome $rel
-                try {
-                    if (Test-Path -LiteralPath $searchPath) {
-                        $item = Get-Item -LiteralPath $searchPath -ErrorAction SilentlyContinue
-                        if ($item -and $item.PSIsContainer) {
-                            Get-ChildItem -Path $searchPath -File -ErrorAction SilentlyContinue |
-                                ForEach-Object { $results += $_.FullName }
-                        } else {
-                            $results += $searchPath
-                        }
-                    } else {
+    Where-Object { $Exclusions -notcontains $_.Name } |
+    ForEach-Object {
+        $userHome = $_.FullName
+        foreach ($rel in $RelativePaths) {
+            $searchPath = Join-Path $userHome $rel
+            try {
+                if (Test-Path -LiteralPath $searchPath) {
+                    $item = Get-Item -LiteralPath $searchPath -ErrorAction SilentlyContinue
+                    if ($item -and $item.PSIsContainer) {
                         Get-ChildItem -Path $searchPath -File -ErrorAction SilentlyContinue |
-                            ForEach-Object { $results += $_.FullName }
+                        ForEach-Object { $results += $_.FullName }
                     }
-                } catch { }
+                    else {
+                        $results += $searchPath
+                    }
+                }
+                else {
+                    Get-ChildItem -Path $searchPath -File -ErrorAction SilentlyContinue |
+                    ForEach-Object { $results += $_.FullName }
+                }
             }
+            catch { Write-Verbose "Per-user path expansion failed for $searchPath: $_" }
         }
+    }
     return $results
 }
 
@@ -379,12 +433,15 @@ function Get-RegistryAppEntries {
     DETAILS
         Reads HKLM/HKCU paths (including Wow6432Node); returns metadata used later in evaluation and logging.
     #>
-    param([string]$DisplayName)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$DisplayName
+    )
 
     $roots = @(
-        @{Hive='HKLM'; Path='SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall';             Scope='Machine'},
-        @{Hive='HKLM'; Path='SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall'; Scope='Machine'},
-        @{Hive='HKCU'; Path='SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall';             Scope='User'}
+        @{Hive = 'HKLM'; Path = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'; Scope = 'Machine' },
+        @{Hive = 'HKLM'; Path = 'SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall'; Scope = 'Machine' },
+        @{Hive = 'HKCU'; Path = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'; Scope = 'User' }
     )
 
     $results = @()
@@ -407,9 +464,11 @@ function Get-RegistryAppEntries {
                             Scope           = $r.Scope
                         }
                     }
-                } catch { }
+                }
+                catch { Write-Verbose "Failed reading uninstall key $($_.PSPath): $_" }
             }
-        } catch { }
+        }
+        catch { Write-Verbose "Failed enumerating registry root $base: $_" }
     }
     return $results
 }
@@ -438,7 +497,7 @@ try {
 
     # --- SCAN PHASE (wrapped with retries via Invoke-OperationRetry) ---
     $operationSucceeded = Invoke-OperationRetry -MaxRetries $MaxRetries -RetryDelay $RetryDelay -Operation {
-        $found    = $false
+        $found = $false
         $findings = @()
 
         # Machine scan (uses MachinePaths → Get-FileVersionInfoSafe → Write-Log)
@@ -450,13 +509,16 @@ try {
                         $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
                         if ($item -and $item.PSIsContainer) {
                             $candidates = Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-                        } else {
+                        }
+                        else {
                             $candidates = @($path)
                         }
-                    } else {
+                    }
+                    else {
                         $candidates = Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
                     }
-                } catch { }
+                }
+                catch { Write-Verbose "Failed enumerating path $path: $_" }
 
                 foreach ($candidate in $candidates) {
                     if (-not (Test-Path -LiteralPath $candidate)) { continue }
@@ -502,7 +564,7 @@ try {
                     Write-Log "[$AppDisplayName] Registry '$($r.RegistryPath)' version '$version'"
 
                     $fileRef = $null
-                    if ($r.DisplayIcon)      { $fileRef = ($r.DisplayIcon -replace '\"') }
+                    if ($r.DisplayIcon) { $fileRef = ($r.DisplayIcon -replace '\"') }
                     elseif ($r.InstallLocation) { $fileRef = $r.InstallLocation }
 
                     $findings += [pscustomobject]@{
@@ -513,7 +575,8 @@ try {
                         Scope         = if ($r.Scope -eq 'User') { 'UserRegistry' } else { 'MachineRegistry' }
                     }
                 }
-            } catch {
+            }
+            catch {
                 Write-Log "[$AppDisplayName] Registry scan failed: $_"
             }
         }
@@ -537,7 +600,7 @@ try {
     }
 
     $firstMalformed = $null
-    $firstOutdated  = $null
+    $firstOutdated = $null
     $firstCompliant = $null
 
     foreach ($f in $findings) {
@@ -555,36 +618,37 @@ try {
 
         if (-not $isAtLeast) {
             if (-not $firstOutdated) { $firstOutdated = $f }
-        } else {
+        }
+        else {
             if (-not $firstCompliant) { $firstCompliant = $f }
         }
     }
 
     if ($firstMalformed) {
-        $intuneOutput.FilePath        = $firstMalformed.Path
+        $intuneOutput.FilePath = $firstMalformed.Path
         $intuneOutput.DetectedVersion = $firstMalformed.Version
-        $intuneOutput.InstallScope    = $firstMalformed.Scope
-        $intuneOutput.Status          = 'MalformedVersion'
+        $intuneOutput.InstallScope = $firstMalformed.Scope
+        $intuneOutput.Status = 'MalformedVersion'
         Write-Log "[$AppDisplayName] Malformed version: $($firstMalformed.Path) => $($firstMalformed.Version)"
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         exit 1
     }
 
     if ($firstOutdated) {
-        $intuneOutput.FilePath        = $firstOutdated.Path
+        $intuneOutput.FilePath = $firstOutdated.Path
         $intuneOutput.DetectedVersion = $firstOutdated.Version
-        $intuneOutput.InstallScope    = $firstOutdated.Scope
-        $intuneOutput.Status          = if ($firstOutdated.Scope -like '*User*') { 'UserScopeOutdated' } else { 'Outdated' }
+        $intuneOutput.InstallScope = $firstOutdated.Scope
+        $intuneOutput.Status = if ($firstOutdated.Scope -like '*User*') { 'UserScopeOutdated' } else { 'Outdated' }
         Write-Log "[$AppDisplayName] Outdated: $($firstOutdated.Path) => $($firstOutdated.Version)"
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         exit 1
     }
 
     if ($firstCompliant) {
-        $intuneOutput.FilePath        = $firstCompliant.Path
+        $intuneOutput.FilePath = $firstCompliant.Path
         $intuneOutput.DetectedVersion = $firstCompliant.Version
-        $intuneOutput.InstallScope    = $firstCompliant.Scope
-        $intuneOutput.Status          = 'Compliant'
+        $intuneOutput.InstallScope = $firstCompliant.Scope
+        $intuneOutput.Status = 'Compliant'
         Write-Log "[$AppDisplayName] Compliant: $($firstCompliant.Path) => $($firstCompliant.Version)"
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         exit 0
@@ -596,7 +660,8 @@ try {
     $intuneOutput | ConvertTo-Json -Compress | Out-Host
     if ($TriggerRemediationForMissingApp) { exit 1 } else { exit 0 }
 
-} catch {
+}
+catch {
     $intuneOutput.Status = "Error"
     Write-Log "[$AppDisplayName] Unexpected error: $_"
     $intuneOutput | ConvertTo-Json -Compress | Out-Host

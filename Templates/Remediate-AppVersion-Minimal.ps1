@@ -74,23 +74,34 @@
 [CmdletBinding(SupportsShouldProcess=$false)]
 param(
   [Parameter(Mandatory=$true)]
+  [ValidateNotNullOrEmpty()]
   [string]$AppDisplayName,
 
   [Parameter(Mandatory=$true)]
+  [ValidateNotNullOrEmpty()]
   [string[]]$MachineExePaths,
 
   [Parameter(Mandatory=$true)]
+  [ValidateNotNullOrEmpty()]
   [string]$ExpectedVersion,
 
   [Parameter(Mandatory=$true)]
   [ValidateSet('msi','exe')]
+  [ValidateNotNullOrEmpty()]
   [string]$InstallerType,
 
   [Parameter(Mandatory=$true)]
+  [ValidateNotNullOrEmpty()]
   [string]$InstallerArgs,
 
   [Parameter()]
   [string]$InstallerUrl = "",
+
+  [Parameter()]
+  [string]$InstallerSha256 = "",
+
+  [Parameter()]
+  [bool]$RequireAuthenticode = $false,
 
   [Parameter()]
   [string]$InstallerLocalPath = "",
@@ -107,12 +118,21 @@ if ($VerboseMode -and -not $PSBoundParameters.ContainsKey('Verbose')) {
   $VerbosePreference = 'Continue'
 }
 
+# Require modern PowerShell and stricter behaviour
+#Requires -Version 5.1
+Set-StrictMode -Version Latest
+
 # --- Fixed defaults (baked in) ---
 $InstallerPolicyPath = 'HKLM:\Software\Policies\Microsoft\Windows\Installer'
 
 # --- Helpers: safe name, logging, version formatting/comparison ---
 function Get-SafeFileName {
-  param([string]$Name)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Name
+  )
   $invalid = [System.IO.Path]::GetInvalidFileNameChars()
   $clean   = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
   $clean   = $clean.Trim().TrimEnd('.').TrimEnd()
@@ -125,18 +145,24 @@ $LogFile = "C:\Logs\Install-$__safe.log"
 $InstallerLogPath = Join-Path $env:TEMP "$__safe-install.log"
 
 function Write-Log {
-  param([string]$Message)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Message
+  )
   Write-Verbose $Message
   try {
     $dir = Split-Path -Path $LogFile
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-      New-Item -Path $dir -ItemType Directory -Force | Out-Null
+      try { New-Item -Path $dir -ItemType Directory -Force | Out-Null } catch { Write-Verbose "Failed creating log dir $dir: $_" }
     }
     Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
-  } catch { }
+  } catch { Write-Verbose "Failed to write to log $LogFile: $_" }
 }
 
 function Format-Version {
+  [CmdletBinding()]
   param([string]$v)
   $v = ($v -replace ',', '.').Trim()
   if ($v -match '([0-9]+(?:\.[0-9]+)*)') { $v = $matches[1] } else { $v = '0' }
@@ -146,6 +172,7 @@ function Format-Version {
 }
 
 function Compare-Versions {
+  [CmdletBinding()]
   param([string]$Installed,[string]$Expected)
   $iv = Format-Version $Installed
   $ev = Format-Version $Expected
@@ -164,16 +191,28 @@ function Compare-Versions {
 }
 
 function Get-FileVersionSafe {
-  param([string]$Path)
-  $vi = (Get-Item -LiteralPath $Path).VersionInfo
-  $version = $vi.ProductVersion
-  if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
-  ($version -replace ',', '.').Trim()
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Path
+  )
+  try {
+    $vi = (Get-Item -LiteralPath $Path -ErrorAction Stop).VersionInfo
+    $version = $vi.ProductVersion
+    if ([string]::IsNullOrWhiteSpace($version)) { $version = $vi.FileVersion }
+    return ($version -replace ',', '.').Trim()
+  } catch { Write-Verbose "Failed reading version from $Path: $_"; return '' }
 }
 
 # --- Optional registry scan (DisplayVersion only) ---
 function Get-RegistryAppVersions {
-  param([string]$DisplayName)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$DisplayName
+  )
   $roots = @(
     @{Hive='HKLM'; Path='SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'},
     @{Hive='HKLM'; Path='SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall'},
@@ -189,15 +228,18 @@ function Get-RegistryAppVersions {
           if ($p -and $p.DisplayName -and $p.DisplayName -like "*$DisplayName*") {
             if ($p.DisplayVersion) { $versions += $p.DisplayVersion }
           }
-        } catch {}
+        } catch { Write-Log "Registry entry read failed for $($_.PSPath): $_" }
       }
-    } catch {}
+    } catch { Write-Log "Failed to enumerate registry path $base: $_" }
   }
   return $versions
 }
 
 # --- Machine-only detection; registry optional ---
-function IsExpectedVersionInstalled {
+function Test-ExpectedVersionInstalled {
+  [CmdletBinding()]
+  param()
+
   foreach ($p in $MachineExePaths) {
     $candidates = @()
     try {
@@ -211,7 +253,7 @@ function IsExpectedVersionInstalled {
       } else {
         $candidates = Get-ChildItem -Path $p -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
       }
-    } catch {}
+    } catch { Write-Log "Failed enumerating path $p: $_" }
 
     foreach ($c in $candidates) {
       if (-not (Test-Path -LiteralPath $c)) { continue }
@@ -264,7 +306,7 @@ try {
   Write-Log "Starting remediation for '$AppDisplayName' (expected $ExpectedVersion)"
 
   # Early success
-  if (IsExpectedVersionInstalled) {
+  if (Test-ExpectedVersionInstalled) {
     $Out.DetectedVersion = if ($script:detectedFilePath) { Get-FileVersionSafe -Path $script:detectedFilePath } else { "" }
     $Out.Status = "UpToDate"
     $Out | ConvertTo-Json -Compress | Out-Host
@@ -292,8 +334,35 @@ try {
   if (-not [string]::IsNullOrWhiteSpace($InstallerUrl)) {
     try {
       Write-Log "Downloading installer from $InstallerUrl"
-      Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerLocalPath -UseBasicParsing
+      if (-not $InstallerUrl.ToLowerInvariant().StartsWith('https://')) {
+        Write-Log "Refusing to download installer over non-HTTPS URL: $InstallerUrl"
+        $Out.Status = "DownloadFailed"
+        $Out | ConvertTo-Json -Compress | Out-Host
+        exit 1
+      }
+      Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerLocalPath
       Write-Log "Download complete: '$InstallerLocalPath'"
+
+      if (-not [string]::IsNullOrWhiteSpace($InstallerSha256)) {
+        try {
+          $hash = (Get-FileHash -Path $InstallerLocalPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          if ($hash -ne $InstallerSha256.ToLowerInvariant()) {
+            Write-Log "Installer SHA256 mismatch: expected $InstallerSha256, got $hash"
+            $Out.Status = "DownloadFailed"
+            $Out | ConvertTo-Json -Compress | Out-Host
+            exit 1
+          }
+          Write-Log "Installer SHA256 verified."
+        } catch { Write-Log "Hash verification failed: $_"; $Out.Status = "DownloadFailed"; $Out | ConvertTo-Json -Compress | Out-Host; exit 1 }
+      }
+
+      if ($RequireAuthenticode) {
+        try {
+          $sig = Get-AuthenticodeSignature -FilePath $InstallerLocalPath -ErrorAction Stop
+          if ($sig.Status -ne 'Valid') { Write-Log "Authenticode signature invalid: $($sig.Status)"; $Out.Status = "DownloadFailed"; $Out | ConvertTo-Json -Compress | Out-Host; exit 1 }
+          Write-Log "Authenticode signature is valid."
+        } catch { Write-Log "Authenticode check failed: $_"; $Out.Status = "DownloadFailed"; $Out | ConvertTo-Json -Compress | Out-Host; exit 1 }
+      }
     } catch {
       $Out.Status = "DownloadFailed"
       $Out | ConvertTo-Json -Compress | Out-Host
@@ -312,6 +381,16 @@ try {
   # Prepare args: replace optional <PATH> with quoted local path
   $args = $InstallerArgs
   if ($args -match '<PATH>') { $args = $args.Replace('<PATH>', ('"' + $InstallerLocalPath + '"')) }
+
+  # Validate InstallerType vs file extension and warn if mismatched
+  try {
+    if ($InstallerType -eq 'msi' -and -not $InstallerLocalPath.ToLowerInvariant().EndsWith('.msi')) {
+      Write-Log "Warning: InstallerType is 'msi' but installer file does not end with .msi: $InstallerLocalPath"
+    }
+    if ($InstallerType -eq 'exe' -and -not $InstallerLocalPath.ToLowerInvariant().EndsWith('.exe')) {
+      Write-Log "Warning: InstallerType is 'exe' but installer file does not end with .exe: $InstallerLocalPath"
+    }
+  } catch { Write-Verbose "Installer file check failed: $_" }
 
   # Temporarily allow MSI (minimal policy tweak)
   if ($InstallerType -eq 'msi') {
@@ -341,7 +420,7 @@ try {
   $Out.InstallerLog      = $InstallerLogPath
 
   # Verify regardless of exit code (reboot-required cases)
-  if (IsExpectedVersionInstalled) {
+  if (Test-ExpectedVersionInstalled) {
     $Out.DetectedVersion = if ($script:detectedFilePath) { Get-FileVersionSafe -Path $script:detectedFilePath } else { "" }
     $Out.Status = "Fixed"
     $Out | ConvertTo-Json -Compress | Out-Host
