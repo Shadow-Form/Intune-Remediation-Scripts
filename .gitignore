@@ -2,10 +2,6 @@
 .vscode/
 *.code-workspace
 
-# Ignore Copilot agent & instruction files
-.github/agents/
-.github/copilot-instructions.md
-
 # Ignore local PowerShell artifacts
 *.ps1.local
 *.psm1.local
