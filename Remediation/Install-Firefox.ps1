@@ -46,7 +46,7 @@ Switch to opt in to file logging. When provided, a log file is derived as:
 Optional path used for installer-specific logs (msi /l*v etc.). Defaults to `$env:TEMP\<App>-install.log`.
 
 .PARAMETER MaxRetries
-Retry count for downloads (1–10). Default: 3.
+Retry count for downloads (1 – 10). Default: 3.
 
 .PARAMETER RetryDelaySeconds
 Delay between download retries (seconds). Default: 5.
@@ -87,10 +87,10 @@ powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\Remediatio
 - Downloads use retry logic and treat download errors as install-related failures.
 
 Exit codes:
-    0 = Success / compliant (no remediation required or remediation succeeded)
-    1 = Remediation attempted but failed
-    2 = Invalid parameters or pre-check failure
-    3 = Download or installer-related error (download, unknown installer type, install timeout)
+0 = Success / compliant (no remediation required or remediation succeeded)
+1 = Remediation attempted but failed
+2 = Invalid parameters or pre-check failure
+3 = Download or installer-related error (download, unknown installer type, install timeout)
 
 #>
 
@@ -103,9 +103,7 @@ param (
         "${env:ProgramW6432}\Mozilla Firefox\firefox.exe",
         "${env:ProgramFiles(x86)}\Mozilla Firefox\firefox.exe"
     ),
-    [string[]]$PerUserRelativeExePath = @(
-        "AppData\Local\Programs\Mozilla Firefox\firefox.exe"
-    ),
+    [string]$PerUserRelativeExePath = "AppData\Local\Programs\Mozilla Firefox\firefox.exe",
     [ValidateNotNullOrEmpty()]
     [string]$ExpectedVersion = "150.0",
 
@@ -177,7 +175,7 @@ if (-not $PSBoundParameters.ContainsKey('ProcessNamePattern') -or [string]::IsNu
 }
 
 # Utility: Writes a timestamped message to both verbose output and the log file
-function Write-Log {
+function Write-LogEntry {
     param ([string]$Message)
     Write-Verbose $Message
     if ($EnableLogging) {
@@ -200,7 +198,7 @@ function Format-Version {
     $parts -join '.'
 }
 # Utility: Compares two version strings after normalization
-function Compare-Versions {
+function Compare-Version {
     param([string]$Installed, [string]$Expected)
     try { (Format-Version $Installed) -ge (Format-Version $Expected) }
     catch { throw "Version comparison failed $_" }
@@ -215,7 +213,7 @@ function Get-FileVersionInfoSafe {
 }
 
 # Utility: Enumerates all per-user install paths for the given relative exe path
-function Get-PerUserAppPaths {
+function Get-PerUserAppPath {
     param(
         [string]$RelativeExePath,
         [string[]]$Exclusions = @('Public', 'Default', 'Default User', 'All Users', 'WDAGUtilityAccount')
@@ -236,7 +234,7 @@ function IsExpectedVersionInstalled {
             $ver = Get-FileVersionInfoSafe -Path $p
             Write-Verbose "[$AppDisplayName] Machine path version '$ver' from '$p'"
             try {
-                if (Compare-Versions -Installed $ver -Expected $ExpectedVersion) {
+                if (Compare-Version -Installed $ver -Expected $ExpectedVersion) {
                     $script:detectedFilePath = $p
                     return $true
                 }
@@ -248,11 +246,11 @@ function IsExpectedVersionInstalled {
         }
     }
     if (-not [string]::IsNullOrWhiteSpace($PerUserRelativeExePath)) {
-        foreach ($u in (Get-PerUserAppPaths -RelativeExePath $PerUserRelativeExePath)) {
+        foreach ($u in (Get-PerUserAppPath -RelativeExePath $PerUserRelativeExePath)) {
             $ver = Get-FileVersionInfoSafe -Path $u
             Write-Verbose "[$AppDisplayName] User path version '$ver' from '$u'"
             try {
-                if (Compare-Versions -Installed $ver -Expected $ExpectedVersion) {
+                if (Compare-Version -Installed $ver -Expected $ExpectedVersion) {
                     $script:detectedFilePath = $u
                     return $true
                 }
@@ -281,25 +279,25 @@ function Get-Installer {
     param([string]$Url, [string]$LocalPath, [int]$MaxRetries, [int]$DelaySec)
     if ([string]::IsNullOrWhiteSpace($Url)) {
         if (-not [string]::IsNullOrWhiteSpace($LocalPath) -and (Test-Path -LiteralPath $LocalPath)) {
-            Write-Log "Using pre-staged installer '$LocalPath'"
+            Write-LogEntry "Using pre-staged installer '$LocalPath'"
             return $true
         }
-        Write-Log "No URL and local installer path missing; cannot proceed."
+        Write-LogEntry "No URL and local installer path missing; cannot proceed."
         return $false
     }
     $attempt = 0
     while ($attempt -lt $MaxRetries) {
         $attempt++
         try {
-            Write-Log "Downloading installer (attempt $attempt) from $Url"
+            Write-LogEntry "Downloading installer (attempt $attempt) from $Url"
             Invoke-WebRequest -Uri $Url -OutFile $LocalPath -UseBasicParsing -ErrorAction Stop
-            Write-Log "Download complete: '$LocalPath'"
+            Write-LogEntry "Download complete: '$LocalPath'"
             return $true
         }
         catch {
-            Write-Log "Download attempt $attempt failed: $_"
+            Write-LogEntry "Download attempt $attempt failed: $_"
             if ($attempt -lt $MaxRetries) {
-                Write-Log "Waiting $DelaySec seconds before retrying"
+                Write-LogEntry "Waiting $DelaySec seconds before retrying"
                 Start-Sleep -Seconds $DelaySec
             }
         }
@@ -308,30 +306,31 @@ function Get-Installer {
 }
 
 # Utility: Stops running processes matching a pattern, first gracefully, then forcefully
-function Stop-RunningProcesses {
+function Stop-RunningProcess {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$Pattern, [int]$GracefulSec, [int]$ForceRetries)
-    Write-Log "Checking processes matching '$Pattern'"
+    Write-LogEntry "Checking processes matching '$Pattern'"
     $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like $Pattern }
     foreach ($p in $procs) {
         try {
-            if ($PSCmdlet.ShouldProcess($p.Name, "CloseMainWindow")) {
+            if ($PSCmdlet -and $PSCmdlet.ShouldProcess($p.Name, "CloseMainWindow")) {
                 $null = $p.CloseMainWindow()
                 Start-Sleep -Seconds $GracefulSec
             }
             if (-not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)) {
-                Write-Log "Process '$($p.Name)' exited gracefully."
+                Write-LogEntry "Process '$($p.Name)' exited gracefully."
                 continue
             }
             for ($i = 1; $i -le $ForceRetries; $i++) {
-                Write-Log "Force stopping '$($p.Name)' attempt $i"
-                if ($PSCmdlet.ShouldProcess($p.Name, "Stop-Process -Force")) {
+                Write-LogEntry "Force stopping '$($p.Name)' attempt $i"
+                if ($PSCmdlet -and $PSCmdlet.ShouldProcess($p.Name, "Stop-Process -Force")) {
                     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
                 }
                 Start-Sleep -Seconds 2
                 if (-not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)) { break }
             }
         }
-        catch { Write-Log "Failed to stop process '$($p.Name)': $_" }
+        catch { Write-LogEntry "Failed to stop process '$($p.Name)': $_" }
     }
 }
 
@@ -349,26 +348,29 @@ function Get-InstallerType {
 
 # Utility: Removes per-user installs by searching HKU uninstall keys for matching DisplayName
 function Uninstall-PerUserAppByName {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$AppName)
     try {
         $found = $false
-        Get-ChildItem HKU:\ -ErrorAction SilentlyContinue | ForEach-Object {
-            $sid = $_.PSChildName
+        $hives = Get-ChildItem HKU:\ -ErrorAction SilentlyContinue
+        foreach ($hive in $hives) {
+            $sid = $hive.PSChildName
             $root = "HKU:\$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-            if (-not (Test-Path $root)) { return }
+            if (-not (Test-Path $root)) { continue }
 
-            Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
-                $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+            $keys = Get-ChildItem $root -ErrorAction SilentlyContinue
+            foreach ($key in $keys) {
+                $props = Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue
                 if ($props.DisplayName -and ($props.DisplayName -like "*$AppName*")) {
                     $found = $true
                     $cmd = $props.UninstallString
                     if ($cmd) {
-                        Write-Log "Uninstalling per-user '$($props.DisplayName)' for SID $sid"
+                        Write-LogEntry "Uninstalling per-user '$($props.DisplayName)' for SID $sid"
 
                         # Parse the uninstall string into an executable and arguments
                         $exePath = $null
                         $exeArgs = ""
-                        if ($cmd -match '^[\s]*"([^"]+)"(.*)$') {
+                        if ($cmd -match '^[\s]*"([^\"]+)"(.*)$') {
                             $exePath = $matches[1]
                             $exeArgs = $matches[2].Trim()
                         }
@@ -378,14 +380,14 @@ function Uninstall-PerUserAppByName {
                         }
 
                         if (-not $exePath) {
-                            Write-Log "Could not parse uninstall command; skipping: $cmd"
-                            return
+                            Write-LogEntry "Could not parse uninstall command; skipping: $cmd"
+                            continue
                         }
 
                         # Basic safety checks: disallow shell wrappers and script hosts
                         if ($exePath -match '(?i)cmd\.exe|powershell|rundll32|cscript|wscript') {
-                            Write-Log "Uninstall command uses disallowed host ($exePath); skipping execution"
-                            return
+                            Write-LogEntry "Uninstall command uses disallowed host ($exePath); skipping execution"
+                            continue
                         }
 
                         # Normalize exe name for decision logic
@@ -403,20 +405,24 @@ function Uninstall-PerUserAppByName {
                         }
 
                         try {
-                            Start-Process -FilePath $file -ArgumentList $exeArgs -Wait -NoNewWindow -ErrorAction Stop
+                            if ($PSCmdlet -and $PSCmdlet.ShouldProcess($props.DisplayName, "Uninstall per-user app")) {
+                                Start-Process -FilePath $file -ArgumentList $exeArgs -Wait -NoNewWindow -ErrorAction Stop
+                            } else {
+                                Write-LogEntry "Skipping uninstall of '$($props.DisplayName)' due to ShouldProcess/WhatIf"
+                            }
                         }
                         catch {
-                            Write-Log "Failed to run uninstall ($file $exeArgs): $_"
+                            Write-LogEntry "Failed to run uninstall ($file $exeArgs): $_"
                         }
                     }
                 }
             }
         }
         if (-not $found) {
-            Write-Log "No per-user uninstall entries found for '$AppName'."
+            Write-LogEntry "No per-user uninstall entries found for '$AppName'."
         }
     }
-    catch { Write-Log "Per-user uninstall error: $_" }
+    catch { Write-LogEntry "Per-user uninstall error: $_" }
 }
 
 # ---------- Intune output ----------
@@ -434,20 +440,20 @@ $intuneOutput = @{
 # ---------- Parameter sanity ----------
 if ([string]::IsNullOrWhiteSpace($ExpectedVersion) -or ($MachineExePaths.Count -eq 0 -and [string]::IsNullOrWhiteSpace($PerUserRelativeExePath))) {
     $intuneOutput.Status = "InvalidParameters"
-    Write-Log "Invalid parameters: ExpectedVersion and at least one detection path are required."
+    Write-LogEntry "Invalid parameters: ExpectedVersion and at least one detection path are required."
     $intuneOutput | ConvertTo-Json -Compress; exit 2
 }
 
 # ---------- Main ----------
 $originalDisableMsi = $null
 try {
-    Write-Log "Starting remediation for '$AppDisplayName' (expected $ExpectedVersion)"
+    Write-LogEntry "Starting remediation for '$AppDisplayName' (expected $ExpectedVersion)"
 
     # Early success?
     if (IsExpectedVersionInstalled) {
         $intuneOutput.DetectedVersion = (Get-FileVersionInfoSafe -Path $script:detectedFilePath)
         $intuneOutput.Status = "UpToDate"
-        Write-Log "Already up-to-date ($($intuneOutput.DetectedVersion) >= $ExpectedVersion). No action."
+        Write-LogEntry "Already up-to-date ($($intuneOutput.DetectedVersion) >= $ExpectedVersion). No action."
         $intuneOutput | ConvertTo-Json -Compress; exit 0
     }
 
@@ -459,7 +465,7 @@ try {
     # Retrieve installer (download or use pre-staged)
     if (-not (Get-Installer -Url $InstallerUrl -LocalPath $InstallerLocalPath -MaxRetries $MaxRetries -DelaySec $RetryDelaySeconds)) {
         $intuneOutput.Status = "DownloadFailed"
-        Write-Log "Failed to get installer."
+        Write-LogEntry "Failed to get installer."
         $intuneOutput | ConvertTo-Json -Compress; exit 3
     }
 
@@ -475,7 +481,7 @@ try {
 
     # Optional: stop processes
     if ($StopProcessesBeforeInstall) {
-        Stop-RunningProcesses -Pattern $ProcessNamePattern -GracefulSec $GracefulTimeout -ForceRetries $MaxForceRetries
+        Stop-RunningProcess -Pattern $ProcessNamePattern -GracefulSec $GracefulTimeout -ForceRetries $MaxForceRetries
     }
 
     # MSI policy (only for MSI)
@@ -486,9 +492,9 @@ try {
                 New-Item -Path $InstallerPolicyPath -Force | Out-Null
             }
             Set-ItemProperty -Path $InstallerPolicyPath -Name "DisableMSI" -Value 0
-            Write-Log "Temporarily set DisableMSI = 0 for MSI install."
+            Write-LogEntry "Temporarily set DisableMSI = 0 for MSI install."
         }
-        catch { Write-Log "Failed to set DisableMSI: $_" }
+        catch { Write-LogEntry "Failed to set DisableMSI: $_" }
     }
 
     # Build arguments and run installer
@@ -497,23 +503,23 @@ try {
         $msiArgs = $MsiBaseArguments.Replace("<PATH>", ('"' + $InstallerLocalPath + '"')).Trim()
         $msiArgs = "$msiArgs /l*v `"$InstallerLogPath`""
         if (-not [string]::IsNullOrWhiteSpace($AdditionalArguments)) { $msiArgs = "$msiArgs $AdditionalArguments" }
-        Write-Log "Running MSI: msiexec.exe $msiArgs"
-        if ($PSCmdlet.ShouldProcess($AppDisplayName, "Install MSI")) {
-            $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
+        Write-LogEntry "Running MSI: msiexec.exe $msiArgs"
+        if ($PSCmdlet -and $PSCmdlet.ShouldProcess($AppDisplayName, "Install MSI")) {
+            $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow -ErrorAction Stop
             $exitCode = $p.ExitCode
         }
     }
     elseif ($type -eq "exe") {
         $exeArgs = $ExeBaseArguments.Trim()
         if (-not [string]::IsNullOrWhiteSpace($AdditionalArguments)) { $exeArgs = "$exeArgs $AdditionalArguments" }
-        Write-Log "Running EXE: `"$InstallerLocalPath`" $exeArgs"
-        if ($PSCmdlet.ShouldProcess($AppDisplayName, "Install EXE")) {
-            $p = Start-Process -FilePath $InstallerLocalPath -ArgumentList $exeArgs -Wait -PassThru -NoNewWindow
+        Write-LogEntry "Running EXE: `"$InstallerLocalPath`" $exeArgs"
+        if ($PSCmdlet -and $PSCmdlet.ShouldProcess($AppDisplayName, "Install EXE")) {
+            $p = Start-Process -FilePath $InstallerLocalPath -ArgumentList $exeArgs -Wait -PassThru -NoNewWindow -ErrorAction Stop
             $exitCode = $p.ExitCode
         }
     }
 
-    Write-Log "Installer exit code: $exitCode (log: $InstallerLogPath)"
+    Write-LogEntry "Installer exit code: $exitCode (log: $InstallerLogPath)"
     $intuneOutput.InstallerExitCode = $exitCode
     $intuneOutput.InstallerLog = $InstallerLogPath
 
@@ -522,12 +528,16 @@ try {
         $detected = (Get-FileVersionInfoSafe -Path $script:detectedFilePath)
         $intuneOutput.DetectedVersion = $detected
         $intuneOutput.Status = "Fixed"
-        Write-Log "Remediation succeeded: $detected >= $ExpectedVersion"
+        Write-LogEntry "Remediation succeeded: $detected >= $ExpectedVersion"
 
         # OPTIONAL: cleanup per-user installs after machine-wide success
-        if ($RemovePerUserInstallsAfterMachineInstall -and -not [string]::IsNullOrWhiteSpace($AppDisplayName)) {
-            Write-Log "Removing per-user installs for '$AppDisplayName' (policy enabled)"
-            Uninstall-PerUserAppByName -AppName $AppDisplayName
+            if ($RemovePerUserInstallsAfterMachineInstall -and -not [string]::IsNullOrWhiteSpace($AppDisplayName)) {
+            Write-LogEntry "Removing per-user installs for '$AppDisplayName' (policy enabled)"
+            if ($PSCmdlet -and $PSCmdlet.ShouldProcess($AppDisplayName, 'Remove per-user installs')) {
+                Uninstall-PerUserAppByName -AppName $AppDisplayName
+            } else {
+                Write-LogEntry "Skipping per-user uninstall due to ShouldProcess/WhatIf"
+            }
             # Optionally: log if no per-user installs were found
         }
 
@@ -536,26 +546,26 @@ try {
             $markerDir = $MarkerFileRoot
             if (-not (Test-Path $markerDir)) { New-Item -Path $markerDir -ItemType Directory -Force | Out-Null }
             New-Item -Path (Join-Path $markerDir "$__safeName-$ExpectedVersion.marker") -ItemType File -Force | Out-Null
-            Write-Log "Marker file created."
+            Write-LogEntry "Marker file created."
         }
 
         # Clean up downloaded installer if it was downloaded
         if (-not [string]::IsNullOrWhiteSpace($InstallerUrl)) {
             Remove-Item -Path $InstallerLocalPath -Force -ErrorAction SilentlyContinue
-            Write-Log "Removed downloaded installer."
+            Write-LogEntry "Removed downloaded installer."
         }
 
         $intuneOutput | ConvertTo-Json -Compress; exit 0
     }
     else {
         $intuneOutput.Status = "InstallFailed"
-        Write-Log "Installation completed but expected version not detected."
+        Write-LogEntry "Installation completed but expected version not detected."
         $intuneOutput | ConvertTo-Json -Compress; exit 1
     }
 
 }
 catch {
-    Write-Log "An error occurred: $_"
+    Write-LogEntry "An error occurred: $_"
     $intuneOutput.Status = "Error"
     $intuneOutput | ConvertTo-Json -Compress
     exit 1
@@ -563,14 +573,14 @@ catch {
 finally {
     # Restore MSI policy if we changed it
     try {
-        if ($originalDisableMsi -ne $null) {
+        if ($null -ne $originalDisableMsi) {
             Set-ItemProperty -Path $InstallerPolicyPath -Name "DisableMSI" -Value $originalDisableMsi
-            Write-Log "Restored DisableMSI=$originalDisableMsi"
+            Write-LogEntry "Restored DisableMSI=$originalDisableMsi"
         }
         else {
             Remove-ItemProperty -Path $InstallerPolicyPath -Name "DisableMSI" -ErrorAction SilentlyContinue
-            Write-Log "Removed temporary DisableMSI override"
+            Write-LogEntry "Removed temporary DisableMSI override"
         }
     }
-    catch { Write-Log "Failed to restore DisableMSI: $_" }
+    catch { Write-LogEntry "Failed to restore DisableMSI: $_" }
 }
