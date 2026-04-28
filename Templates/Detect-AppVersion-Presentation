@@ -28,6 +28,24 @@ param(
 )
 
 # ------------------------------------------------------------
+# Minimal local logger
+# ------------------------------------------------------------
+function Write-LocalLog {
+    param([string]$Message)
+
+    $LogDir = "C:\Logs"
+    if (-not (Test-Path $LogDir)) {
+        try { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null } catch { }
+    }
+
+    $Safe = ($AppDisplayName -replace '[^A-Za-z0-9_-]', '_')
+    $LogFile = Join-Path $LogDir ("Detect-$Safe.log")
+
+    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    "$timestamp $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
+}
+
+# ------------------------------------------------------------
 # Helper: Normalize a version string for simple comparison
 # ------------------------------------------------------------
 function Convert-Version {
@@ -87,6 +105,7 @@ if ($findings.Count -eq 0) {
         App    = $AppDisplayName
         Status = 'NotInstalled'
     } | ConvertTo-Json -Compress
+    Write-LocalLog "Status=NotInstalled Expected=$ExpectedVersion"
 
     if ($RemediateIfMissing) { exit 1 } else { exit 0 }
 }
@@ -102,6 +121,7 @@ foreach ($f in $findings) {
             Path    = $f.Path
             Version = $f.Version
         } | ConvertTo-Json -Compress
+        Write-LocalLog "Status=Compliant Path=$($f.Path) Version=$($f.Version)"
         exit 0
     }
 }
@@ -114,4 +134,5 @@ foreach ($f in $findings) {
     Status   = 'Outdated'
     Required = $ExpectedVersion
 } | ConvertTo-Json -Compress
+Write-LocalLog "Status=Outdated Expected=$ExpectedVersion Path=$($findings[0].Path) Detected=$($findings[0].Version)"
 exit 1
