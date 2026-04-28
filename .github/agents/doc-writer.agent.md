@@ -3,9 +3,9 @@ name: Documentation Writer
 description: Generates comment-based help, README sections, and usage docs for detection/remediation scripts.
 tools:
   - search
-   - read
-   - edit
-   - vscode
+  - read
+  - edit
+  - vscode
 model: GPT-5 mini (copilot)
 
 handoffs:
