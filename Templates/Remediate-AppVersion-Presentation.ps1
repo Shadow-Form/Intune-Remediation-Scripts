@@ -37,6 +37,24 @@ param(
 )
 
 # ------------------------------------------------------------
+# Minimal local logger
+# ------------------------------------------------------------
+function Write-LocalLog {
+    param([string]$Message)
+
+    $LogDir = "C:\Logs"
+    if (-not (Test-Path $LogDir)) {
+        try { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null } catch { }
+    }
+
+    $Safe = ($AppDisplayName -replace '[^A-Za-z0-9_-]', '_')
+    $LogFile = Join-Path $LogDir ("Remediate-$Safe.log")
+
+    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    "$timestamp $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
+}
+
+# ------------------------------------------------------------
 # Helper: Normalize a version string for simple comparison
 # ------------------------------------------------------------
 function Convert-Version {
@@ -101,12 +119,14 @@ $Out = @{
     }
 }
 
+Write-LocalLog "Starting remediation for $AppDisplayName (expected version $ExpectedVersion)"
+
 # ------------------------------------------------------------
 # Step 0.2 - Derive a local installer filename automatically
 # ------------------------------------------------------------
 $FileName = [System.IO.Path]::GetFileName(([System.Uri]$InstallerUrl).AbsolutePath)
-if ([string]::IsNullOrWhiteSpace($FileName)) {
-Name = "$($AppDisplayName)-installer.bin"
+if (:IsNullOrWhiteSpace($FileName)) {
+    $FileName = "$($AppDisplayName)-installer.bin"
 }
 
 $InstallerLocalPath = Join-Path $env:TEMP $FileName
@@ -114,11 +134,14 @@ $InstallerLocalPath = Join-Path $env:TEMP $FileName
 # ------------------------------------------------------------
 # Step 1 - Download installer (single attempt)
 # ------------------------------------------------------------
+Write-LocalLog "Downloading installer from $InstallerUrl"
+
 try {
     Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerLocalPath -UseBasicParsing
     $Out.Installer.Path = $InstallerLocalPath
 }
 catch {
+    Write-LocalLog "Download failed"
     $Out.Status = "DownloadFailed"
     $Out | ConvertTo-Json -Compress | Out-Host
     exit 1
@@ -144,8 +167,10 @@ try {
         $proc = Start-Process -FilePath $InstallerLocalPath -ArgumentList $EffectiveArgs -Wait -PassThru -NoNewWindow
         $Out.Installer.Exit = $proc.ExitCode
     }
+    Write-LocalLog "Installer finished with exit code $($proc.ExitCode)"
 }
 catch {
+    Write-LocalLog "Installer execution error"
     $Out.Status = "InstallerError"
     $Out | ConvertTo-Json -Compress | Out-Host
     exit 1
@@ -155,6 +180,7 @@ catch {
 # Step 4 - Post-install verification
 # ------------------------------------------------------------
 $AfterVersion = Get-InstalledVersion -Paths $MachinePaths
+Write-LocalLog "Post-install detected version: $AfterVersion"
 
 # ------------------------------------------------------------
 # Step 5 - Output (JSON for Intune) and exit code
