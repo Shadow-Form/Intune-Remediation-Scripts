@@ -17,6 +17,7 @@
 # Ignore secrets & environment variable files
 *.env
 *.env.local
+.local/
 *.secrets.json
 
 # Ignore OS-level junk
