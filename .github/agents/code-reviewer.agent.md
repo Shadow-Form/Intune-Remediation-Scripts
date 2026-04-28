@@ -1,7 +1,7 @@
 ---
 name: Code Reviewer
 description: Performs general-purpose PowerShell code review for this repository with a focus on correctness, readability, maintainability, and safe patterns.
-model: gpt-5-mini
+model: GPT-5 mini (copilot)
 tools:
   - search
   - read

@@ -1,7 +1,7 @@
 ---
 name: PowerShell Linter
 description: Enforces PowerShell style and PSScriptAnalyzer-aligned best practices across the repo; proposes corrective edits and cites matching rule IDs.
-model: gpt-5-mini
+model: GPT-5 mini (copilot)
 tools:
   - search
   - read

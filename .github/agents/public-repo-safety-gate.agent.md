@@ -6,7 +6,7 @@ tools:
 - read
 - edit
 - vscode
-model: gpt-5-mini
+model: GPT-5 mini (copilot)
 handoffs:
 - label: "Audit Security"
   agent: Security Auditor
