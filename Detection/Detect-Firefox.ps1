@@ -1,4 +1,4 @@
-[<#
+<#
 .SYNOPSIS
     Detects whether an application (Mozilla Firefox) is installed and meets the expected version.
 
