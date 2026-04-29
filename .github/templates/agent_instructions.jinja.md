@@ -1,0 +1,127 @@
+{# ========================================================================== #}
+{# Jinja Template: .github/templates/agent_instruction.jinja.md               #}
+{# Purpose: Render standardized agent instruction files for this repo         #}
+{# ========================================================================== #}
+
+{# ----------------------------- Header (YAMLish) --------------------------- #}
+name: {{ agent_profile.name }}
+description: {{ agent_profile.description }}
+model: {{ agent_profile.model or 'GPT-5 mini (copilot)' }}
+tools:
+{% if agent_profile.tools %}
+{% for t in agent_profile.tools -%}
+- {{ t }}
+{% endfor %}
+{% else -%}
+- search
+- read
+- edit
+- vscode
+{% endif %}
+{% if agent_profile.handoffs %}
+handoffs:
+{% for h in agent_profile.handoffs %}
+- label: "{{ h.label }}"
+  agent: {{ h.agent }}
+  prompt: >
+    {{ h.prompt | replace('\n', '\n') }}
+  send: {{ h.send | default(true) | string | lower }}
+  showContinueOn: {{ h.showContinueOn | default(true) | string | lower }}
+{% endfor %}
+{% endif %}
+
+{# ------------------------------- Role ------------------------------------ #}
+### Role
+
+{{ agent_profile.role }}
+
+{# ----------------------------- Mission/Scope ----------------------------- #}
+### Mission
+
+{{ agent_profile.mission }}
+
+{% if agent_profile.scope %}
+### Scope
+
+{{ agent_profile.scope }}
+{% endif %}
+
+{# --------------------------- Standards Section --------------------------- #}
+### Standards (source of truth)
+
+- **Global standards file:** `.github/copilot-instructions.md`
+- **Version:** {{ standards.version | default('1.0.0') }}
+- **Key expectations (PowerShell + Intune):**
+  - Advanced functions with `[CmdletBinding()]` + typed `param()`
+  - Approved **Verb‑Noun** names; explicit cmdlet names (no aliases)
+  - Parameter validation attributes (e.g., `[ValidateSet()]`, `[ValidatePattern()]`)
+  - Clear **comment‑based help** (.SYNOPSIS, .DESCRIPTION, .PARAMETER, .EXAMPLE, .NOTES)
+  - **Detection**: read‑only, minimal machine‑readable output, **exit 0** = compliant; **non‑zero** = remediation needed
+  - **Remediation**: idempotent, non‑interactive, safe paths, minimal sanitized logging
+  - No secrets/tokens/tenant IDs/internal URLs; avoid risky patterns (e.g., `Invoke-Expression` with untrusted input)
+
+{# --------------------------- Operating Rules ----------------------------- #}
+### Operating Rules (derived)
+
+1. Enforce only the standards relevant to your agent’s mission.
+2. Provide **actionable diffs** and small, precise edits.
+3. Prefer deterministic, non‑interactive behavior suitable for automation.
+4. Escalate ambiguous cases to a human (do not guess on security‑sensitive issues).
+5. Never print or store real secrets; redact as `****`.
+
+{# ---------------------------- Review Rubric ------------------------------ #}
+### Review Rubric / Checklist
+
+{% if standards.rubric %}
+{% for item in standards.rubric -%}
+- [ ] {{ item }}
+{% endfor %}
+{% else %}
+- [ ] Advanced function structure present (`[CmdletBinding()]`, typed `param()`)
+- [ ] Verb‑Noun naming (approved verbs), correct casing, singular nouns where appropriate
+- [ ] No aliases; explicit cmdlet names
+- [ ] Parameter validation attributes used for risky inputs
+- [ ] Error handling with `try { } catch { }` and clear messages
+- [ ] Detection is read‑only; exit codes follow conventions (0 vs non‑zero)
+- [ ] Remediation is idempotent; non‑interactive; safe paths; cleans up temp artifacts
+- [ ] No secrets/tenant IDs/internal URLs; minimal sanitized logging
+- [ ] Consistent formatting (indentation, whitespace, splatting for long params, final newline)
+{% endif %}
+
+{# ------------------------------ Outputs ---------------------------------- #}
+{% if agent_profile.outputs %}
+### Output Format
+
+{{ agent_profile.outputs }}
+{% endif %}
+
+{# ------------------------------ Examples --------------------------------- #}
+{% if agent_profile.examples %}
+### Examples
+
+{% for ex in agent_profile.examples -%}
+- {{ ex }}
+{% endfor %}
+{% endif %}
+
+{# ---------------------------- Validation --------------------------------- #}
+### Validation Checklist (cross‑agent)
+
+- **PowerShell Lint (PSSA‑aligned):** approved verbs, advanced functions, parameter validation, `SupportsShouldProcess` + `$PSCmdlet.ShouldProcess(...)` for state changes, explicit cmdlet names, consistent formatting.
+- **Security & Privacy:** no secrets/tokens/tenant IDs/internal URLs; avoid risky patterns (e.g., `Invoke-Expression` with untrusted input); minimal sanitized logging.
+- **Intune Remediation Fit:** detection is read‑only with **exit 0** vs **non‑zero**; remediation is **idempotent**, **non‑interactive**, uses safe paths, and cleans up artifacts.
+- **Docs:** comment‑based help + README blocks summarizing detection/remediation behavior, exit codes, idempotence, and caveats.
+
+{# ---------------------------- Provenance -------------------------------- #}
+### Provenance
+
+- Generated by **Standards Manager** at commit: `{{ commit_hash | default('UNKNOWN') }}`
+- Standards source: `.github/copilot-instructions.md` (v{{ standards.version | default('1.0.0') }})
+- Generated at: {{ generated_at | default('YYYY‑MM‑DD HH:MM:SS Z') }}
+
+{# ========================================================================== #}
+{# Notes:                                                                     #}
+{# - This template is intentionally minimal and stable for low maintenance.   #}
+{# - Pass only the fields you need; undefined blocks stay concise.            #}
+{# - To append agent-specific sections, include them in agent_profile.*       #}
+{# ========================================================================== #}

@@ -1,0 +1,77 @@
+version: 1
+
+# Source of truth for standards used to render/update agent instruction files
+standards:
+  - id: global-copilot
+    path: .github/copilot-instructions.md
+    semver: 1.0.0   # optional; bump when you change standards
+
+# Templates used by the Manager to render subordinate agent files
+templates:
+  - id: agent_instruction
+    path: .github/templates/agent_instruction.jinja.md
+
+# Managed agents and where their instruction files live
+agents:
+  - id: code-reviewer
+    name: Code Reviewer
+    instruction_path: .github/agents/code-reviewer.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: doc-writer
+    name: Documentation Writer
+    instruction_path: .github/agents/doc-writer.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: intune-validator
+    name: Intune Remediation Validator
+    instruction_path: .github/agents/intune-validator.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: powershell-linter
+    name: PowerShell Linter
+    instruction_path: .github/agents/powershell-linter.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: public-repo-safety-gate
+    name: Public Repo Safety Gate
+    instruction_path: .github/agents/public-repo-safety-gate.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: release-notes
+    name: Release Notes Generator
+    instruction_path: .github/agents/release-notes.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: security-auditor
+    name: Security Auditor
+    instruction_path: .github/agents/security-auditor.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+  - id: test-harness
+    name: Test Harness Generator
+    instruction_path: .github/agents/test-harness.agent.md
+    template_id: agent_instruction
+    managed_standards:
+      - global-copilot
+
+# Optional: lightweight propagation settings (kept minimal for low maintenance)
+propagation:
+  default_rollout: parallel         # parallel | staged
+  require_prs: false                # you said you commit straight to main
+  require_human_approval: false     # set true if you later add approvals
+  audit_log_dir: .github/audit/standards  # optional; create if you want JSON logs
