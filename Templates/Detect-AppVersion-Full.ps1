@@ -13,7 +13,7 @@
 .PARAMETER AppDisplayName
     Friendly app name used for logging and registry matching. Consumed by:
     - Get-SafeFileName (default LogFile derivation)
-    - Write-Log (message prefix)
+    - Write-LogEntry (message prefix)
     - Get-RegistryAppEntries (when RegistryDisplayName not specified)
     - JSON output (AppName)
     - Main evaluation/summary messages
@@ -23,7 +23,7 @@
     Consumed by:
     - Machine scan section (enumerates candidates)
     - Get-FileVersionInfoSafe (version collection)
-    - Write-Log (scan/evaluation messages)
+    - Write-LogEntry (scan/evaluation messages)
 
 .PARAMETER PerUserRelativePaths
     One or more relative paths under C:\Users\<profile> resolved in SYSTEM context.
@@ -31,7 +31,7 @@
     - Get-PerUserAppPaths (resolves candidates across profiles)
     - Per-user scan section (iterates returned file paths)
     - Get-FileVersionInfoSafe (version collection)
-    - Write-Log (scan/evaluation messages)
+    - Write-LogEntry (scan/evaluation messages)
 
 .PARAMETER ExpectedVersion
     Minimum acceptable version string used to decide compliance (installed >= expected).
@@ -45,7 +45,7 @@
     Consumed by:
     - Get-RegistryAppEntries (filters entries)
     - Registry scan section (DisplayVersion collection)
-    - Write-Log (registry hit messages)
+    - Write-LogEntry (registry hit messages)
 
 .PARAMETER UseMachineScan
     Feature toggle for machine scan.
@@ -80,21 +80,22 @@
     - Invoke-OperationRetry (between attempts)
 
 .PARAMETER LogFile
-    Path for log output; a safe default is derived from AppDisplayName when omitted.
+    Optional path for log output. When `-EnableLogging` is true and `-LogFile` is not supplied
+    the script derives a safe default at `Join-Path -Path $env:TEMP -ChildPath ("Detect-<SafeAppName>.log")`.
     Consumed by:
-    - Write-Log (file writing)
+    - Write-LogEntry (file writing)
     - Get-SafeFileName (default path derivation)
     - Pre-scan directory creation
 
 .PARAMETER MaxLogRetries
     Attempts to write a log entry if the file is temporarily locked.
     Consumed by:
-    - Write-Log (retry loop)
+    - Write-LogEntry (retry loop)
 
 .PARAMETER LogRetryDelay
     Delay (seconds) between log write attempts.
     Consumed by:
-    - Write-Log (retry loop)
+    - Write-LogEntry (retry loop)
 
 .PARAMETER VerboseMode
     Convenience switch: when present, sets VerbosePreference=Continue if -Verbose wasn’t provided.
@@ -104,12 +105,12 @@
 
 [CmdletBinding(SupportsShouldProcess = $false)]
 param (
-    # AppDisplayName → Used by Get-SafeFileName (log path), Write-Log prefixes, registry matching, JSON output
+    # AppDisplayName → Used by Get-SafeFileName (log path), Write-LogEntry prefixes, registry matching, JSON output
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$AppDisplayName,
 
-    # MachinePaths → Used by machine scan to enumerate candidate files; fed to Get-FileVersionInfoSafe and Write-Log
+    # MachinePaths → Used by machine scan to enumerate candidate files; fed to Get-FileVersionInfoSafe and Write-LogEntry
     [Parameter()]
     [string[]]$MachinePaths = @(),
 
@@ -154,8 +155,8 @@ param (
     # LogRetryDelay → Write-Log retry delay (seconds)
     [int]$LogRetryDelay = 2,
 
-    # AllowLocalLogging → when $true detection will write a local log; default is $false to remain read-only
-    [bool]$AllowLocalLogging = $false,
+    # EnableLogging → when $true detection may write a local log; default is $false to remain read-only
+    [bool]$EnableLogging = $false,
 
     # VerboseMode → Enables verbose flow without -Verbose; consumed by initial verbosity configuration
     [switch]$VerboseMode
@@ -199,13 +200,19 @@ function Get-SafeFileName {
     return $clean
 }
 
-# Derive default log path if not provided
-if (-not $PSBoundParameters.ContainsKey('LogFile') -or [string]::IsNullOrWhiteSpace($LogFile)) {
+# Derive default log path if not provided — only when logging is explicitly enabled
+if ($PSBoundParameters.ContainsKey('LogFile') -and -not [string]::IsNullOrWhiteSpace($LogFile)) {
+    # Use supplied LogFile
+}
+elseif ($EnableLogging) {
     $safeName = Get-SafeFileName -Name $AppDisplayName
-    $LogFile = "C:\Logs\Detect-$safeName.log"
+    $LogFile = Join-Path -Path $env:TEMP -ChildPath ("Detect-$safeName.log")
+}
+else {
+    $LogFile = $null
 }
 
-function Write-Log {
+function Write-LogEntry {
     <#
     PURPOSE
         Writes verbose messages to console and persists to disk with retry handling.
@@ -227,17 +234,16 @@ function Write-Log {
 
     Write-Verbose $Message
 
-        if (-not $AllowLocalLogging) { return }
-        if (-not $LogFile) { return }
+    if (-not $EnableLogging -or -not $LogFile) { return }
 
-    $logDirectory = Split-Path -Path $LogFile
-    if (-not (Test-Path $logDirectory)) {
+    $logDirectory = Split-Path -Path $LogFile -Parent
+    if (-not (Test-Path -LiteralPath $logDirectory)) {
         try { New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null } catch { Write-Verbose "Failed to create log directory $logDirectory: $_" }
     }
 
     for ($i = 1; $i -le $MaxLogRetries; $i++) {
         try {
-            Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+            Add-Content -LiteralPath $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
             break
         }
         catch [System.IO.IOException] {
@@ -273,12 +279,12 @@ function Invoke-OperationRetry {
     )
     for ($i = 1; $i -le $MaxRetries; $i++) {
         try {
-            Write-Log "Attempt $i of $MaxRetries"
+            Write-LogEntry "Attempt $i of $MaxRetries"
             & $Operation
             return $true
         }
         catch {
-            Write-Log "Attempt $i failed: $_"
+            Write-LogEntry "Attempt $i failed: $_"
             if ($i -lt $MaxRetries) { Start-Sleep -Seconds $RetryDelay } else { return $false }
         }
     }
@@ -491,7 +497,7 @@ $intuneOutput = @{
 # ======================================================================
 
 try {
-    # Ensure log directory exists (used by Write-Log throughout)
+    # Ensure log directory exists (used by Write-LogEntry throughout)
     $logDir = Split-Path -Path $LogFile
     if ($logDir) { if (-not (Test-Path -LiteralPath $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null } }
 
@@ -500,7 +506,7 @@ try {
         $found = $false
         $findings = @()
 
-        # Machine scan (uses MachinePaths → Get-FileVersionInfoSafe → Write-Log)
+        # Machine scan (uses MachinePaths → Get-FileVersionInfoSafe → Write-LogEntry)
         if ($UseMachineScan -and $MachinePaths.Count > 0) {
             foreach ($path in $MachinePaths) {
                 $candidates = @()
@@ -524,7 +530,7 @@ try {
                     if (-not (Test-Path -LiteralPath $candidate)) { continue }
                     $found = $true
                     $rawVersion = Get-FileVersionInfoSafe -Path $candidate
-                    Write-Log "[$AppDisplayName] Machine version '$rawVersion' from '$candidate'"
+                    Write-LogEntry "[$AppDisplayName] Machine version '$rawVersion' from '$candidate'"
 
                     $findings += [pscustomobject]@{
                         Source  = 'File'
@@ -536,14 +542,14 @@ try {
             }
         }
 
-        # Per-user scan (uses PerUserRelativePaths via Get-PerUserAppPaths → Get-FileVersionInfoSafe → Write-Log)
+        # Per-user scan (uses PerUserRelativePaths via Get-PerUserAppPaths → Get-FileVersionInfoSafe → Write-LogEntry)
         if ($UsePerUserScan -and $PerUserRelativePaths.Count > 0) {
             $perUserHits = Get-PerUserAppPaths -RelativePaths $PerUserRelativePaths
             foreach ($uPath in $perUserHits) {
                 if (-not (Test-Path -LiteralPath $uPath)) { continue }
                 $found = $true
                 $rawVersion = Get-FileVersionInfoSafe -Path $uPath
-                Write-Log "[$AppDisplayName] User version '$rawVersion' from '$uPath'"
+                Write-LogEntry "[$AppDisplayName] User version '$rawVersion' from '$uPath'"
 
                 $findings += [pscustomobject]@{
                     Source  = 'File'
@@ -554,14 +560,14 @@ try {
             }
         }
 
-        # Registry scan (uses RegistryDisplayName via Get-RegistryAppEntries → Write-Log)
+        # Registry scan (uses RegistryDisplayName via Get-RegistryAppEntries → Write-LogEntry)
         if ($UseRegistryScan) {
             try {
                 $regHits = Get-RegistryAppEntries -DisplayName $RegistryDisplayName
                 foreach ($r in $regHits) {
                     $found = $true
                     $version = $r.DisplayVersion
-                    Write-Log "[$AppDisplayName] Registry '$($r.RegistryPath)' version '$version'"
+                    Write-LogEntry "[$AppDisplayName] Registry '$($r.RegistryPath)' version '$version'"
 
                     $fileRef = $null
                     if ($r.DisplayIcon) { $fileRef = ($r.DisplayIcon -replace '\"') }
@@ -577,12 +583,12 @@ try {
                 }
             }
             catch {
-                Write-Log "[$AppDisplayName] Registry scan failed: $_"
+                Write-LogEntry "[$AppDisplayName] Registry scan failed: $_"
             }
         }
 
         if (-not $found) {
-            Write-Log "[$AppDisplayName] No file or registry entry found."
+            Write-LogEntry "[$AppDisplayName] No file or registry entry found."
             throw "NotFound"
         }
 
@@ -594,7 +600,7 @@ try {
     # --- EVALUATION PHASE ---
     if (-not $operationSucceeded) {
         $intuneOutput.Status = "NotInstalled"
-        Write-Log "[$AppDisplayName] Not installed."
+        Write-LogEntry "[$AppDisplayName] Not installed."
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         if ($TriggerRemediationForMissingApp) { exit 1 } else { exit 0 }
     }
@@ -629,7 +635,7 @@ try {
         $intuneOutput.DetectedVersion = $firstMalformed.Version
         $intuneOutput.InstallScope = $firstMalformed.Scope
         $intuneOutput.Status = 'MalformedVersion'
-        Write-Log "[$AppDisplayName] Malformed version: $($firstMalformed.Path) => $($firstMalformed.Version)"
+        Write-LogEntry "[$AppDisplayName] Malformed version: $($firstMalformed.Path) => $($firstMalformed.Version)"
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         exit 1
     }
@@ -639,7 +645,7 @@ try {
         $intuneOutput.DetectedVersion = $firstOutdated.Version
         $intuneOutput.InstallScope = $firstOutdated.Scope
         $intuneOutput.Status = if ($firstOutdated.Scope -like '*User*') { 'UserScopeOutdated' } else { 'Outdated' }
-        Write-Log "[$AppDisplayName] Outdated: $($firstOutdated.Path) => $($firstOutdated.Version)"
+        Write-LogEntry "[$AppDisplayName] Outdated: $($firstOutdated.Path) => $($firstOutdated.Version)"
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         exit 1
     }
@@ -649,21 +655,21 @@ try {
         $intuneOutput.DetectedVersion = $firstCompliant.Version
         $intuneOutput.InstallScope = $firstCompliant.Scope
         $intuneOutput.Status = 'Compliant'
-        Write-Log "[$AppDisplayName] Compliant: $($firstCompliant.Path) => $($firstCompliant.Version)"
+        Write-LogEntry "[$AppDisplayName] Compliant: $($firstCompliant.Path) => $($firstCompliant.Version)"
         $intuneOutput | ConvertTo-Json -Compress | Out-Host
         exit 0
     }
 
     # No meaningful instances after evaluation
     $intuneOutput.Status = 'NotInstalled'
-    Write-Log "[$AppDisplayName] No valid instances detected after evaluation."
+    Write-LogEntry "[$AppDisplayName] No valid instances detected after evaluation."
     $intuneOutput | ConvertTo-Json -Compress | Out-Host
     if ($TriggerRemediationForMissingApp) { exit 1 } else { exit 0 }
 
 }
 catch {
     $intuneOutput.Status = "Error"
-    Write-Log "[$AppDisplayName] Unexpected error: $_"
+    Write-LogEntry "[$AppDisplayName] Unexpected error: $_"
     $intuneOutput | ConvertTo-Json -Compress | Out-Host
     exit 1
 }

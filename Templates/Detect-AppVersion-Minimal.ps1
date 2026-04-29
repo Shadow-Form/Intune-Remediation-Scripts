@@ -10,13 +10,16 @@
     Exit 1 → Needs remediation (missing, malformed, outdated, or error) — unless you opt out
 
   A small JSON summary is written to stdout to aid troubleshooting.
-  Logging is intentionally simple (single write, no retry).
+  Logging is opt-in. Use `-EnableLogging` (boolean) and optional `-LogFile`.
+  When `-EnableLogging` is true and `-LogFile` is not supplied a default is derived at
+  `Join-Path -Path $env:TEMP -ChildPath ("Detect-<SafeAppName>.log")` and logs are written
+  via the `Write-LogEntry` helper.
 
 .PARAMETER AppDisplayName
   Friendly app name used in log file naming and JSON output.
   Consumed by:
     - Get-SafeFileName (derives log path)
-    - Write-Log (messages)
+    - Write-LogEntry (messages)
     - Optional registry scan (display name match)
     - JSON output (AppName)
 
@@ -75,8 +78,10 @@ param(
   # TriggerRemediationForMissingApp → controls exit code when not found or no valid instance (default: on)
   [bool]$TriggerRemediationForMissingApp = $true,
 
-  # AllowLocalLogging → when $true detection will write a local log; default is $false to remain read-only
-  [bool]$AllowLocalLogging = $false,
+  # EnableLogging → when $true detection may write a local log; default is $false to remain read-only
+  [bool]$EnableLogging = $false,
+  # Optional explicit log file path. When supplied the script writes to this file even if -EnableLogging is not set.
+  [string]$LogFile,
 
   # VerboseMode → enables verbose flow without -Verbose (default: off)
   [bool]$VerboseMode = $false
@@ -96,8 +101,8 @@ function Get-SafeFileName {
   <#
     PURPOSE
       Produce a Windows-safe filename from AppDisplayName.
-    USED BY
-      Log path derivation (C:\Logs\Detect-<App>.log)
+      USED BY
+        Default LogFile derivation when logging is enabled (Join-Path -Path $env:TEMP -ChildPath ("Detect-<App>.log"))
   #>
   [CmdletBinding()]
   param(
@@ -112,9 +117,17 @@ function Get-SafeFileName {
   return $clean
 }
 
-$LogFile = "C:\Logs\Detect-$(Get-SafeFileName -Name $AppDisplayName).log"
+if ($PSBoundParameters.ContainsKey('LogFile') -and -not [string]::IsNullOrWhiteSpace($LogFile)) {
+  # Use supplied LogFile
+}
+elseif ($EnableLogging) {
+  $LogFile = Join-Path -Path $env:TEMP -ChildPath ("Detect-$(Get-SafeFileName -Name $AppDisplayName).log")
+}
+else {
+  $LogFile = $null
+}
 
-function Write-Log {
+function Write-LogEntry {
   <#
     PURPOSE
       Writes a single log line (no retry). If directory is missing, create it once.
@@ -130,15 +143,14 @@ function Write-Log {
 
   Write-Verbose $Message
 
-  if (-not $AllowLocalLogging) { return }
-  if (-not $LogFile) { return }
-  $dir = Split-Path -Path $LogFile
+  if (-not $EnableLogging -or -not $LogFile) { return }
+  $dir = Split-Path -Path $LogFile -Parent
   if ($dir -and -not (Test-Path -LiteralPath $dir)) {
     try { New-Item -Path $dir -ItemType Directory -Force | Out-Null } catch { Write-Verbose "Failed to create log directory $dir: $_" }
   }
 
   try {
-    Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+    Add-Content -LiteralPath $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
   }
   catch {
     Write-Verbose "Failed to write to log file $LogFile: $_"
@@ -304,7 +316,7 @@ foreach ($path in $MachinePaths) {
   foreach ($candidate in $candidates) {
     if (-not (Test-Path -LiteralPath $candidate)) { continue }
     $ver = Get-FileVersionSafe -Path $candidate
-    Write-Log "[$AppDisplayName] Machine version '$ver' from '$candidate'"
+    Write-LogEntry "[$AppDisplayName] Machine version '$ver' from '$candidate'"
     $findings += [pscustomobject]@{ Source = 'File'; Path = $candidate; Version = $ver; Scope = 'Machine' }
   }
 }
@@ -314,19 +326,19 @@ if ($UseRegistryScan) {
   try {
     $reg = Get-RegistryAppEntries -DisplayName $AppDisplayName
     foreach ($r in $reg) {
-      Write-Log "[$AppDisplayName] Registry '$($r.RegistryPath)' version '$($r.DisplayVersion)'"
+      Write-LogEntry "[$AppDisplayName] Registry '$($r.RegistryPath)' version '$($r.DisplayVersion)'"
       $findings += [pscustomobject]@{ Source = 'Registry'; Path = $r.RegistryPath; Version = $r.DisplayVersion; Scope = ($r.Scope) }
     }
   }
   catch {
-    Write-Log "[$AppDisplayName] Registry scan failed: $_"
+    Write-LogEntry "[$AppDisplayName] Registry scan failed: $_"
   }
 }
 
 # --- Early decision: nothing found ---
 if ($findings.Count -eq 0) {
   $Out.Status = 'NotInstalled'
-  Write-Log "[$AppDisplayName] No instances found."
+  Write-LogEntry "[$AppDisplayName] No instances found."
 
   $Out | ConvertTo-Json -Compress | Out-Host
   if ($TriggerRemediationForMissingApp) { exit 1 } else { exit 0 }
@@ -364,7 +376,7 @@ if ($malformed) {
   $Out.DetectedVersion = $malformed.Version
   $Out.InstallScope = $malformed.Scope
   $Out.Status = 'MalformedVersion'
-  Write-Log "[$AppDisplayName] Malformed version at '$($malformed.Path)': '$($malformed.Version)'"
+  Write-LogEntry "[$AppDisplayName] Malformed version at '$($malformed.Path)': '$($malformed.Version)'"
   $Out | ConvertTo-Json -Compress | Out-Host
   exit 1
 }
@@ -374,7 +386,7 @@ if ($outdated) {
   $Out.DetectedVersion = $outdated.Version
   $Out.InstallScope = $outdated.Scope
   $Out.Status = if ($outdated.Scope -eq 'User') { 'UserScopeOutdated' } else { 'Outdated' }
-  Write-Log "[$AppDisplayName] Outdated at '$($outdated.Path)': '$($outdated.Version)'"
+  Write-LogEntry "[$AppDisplayName] Outdated at '$($outdated.Path)': '$($outdated.Version)'"
   $Out | ConvertTo-Json -Compress | Out-Host
   exit 1
 }
@@ -384,14 +396,14 @@ if ($ok) {
   $Out.DetectedVersion = $ok.Version
   $Out.InstallScope = $ok.Scope
   $Out.Status = 'Compliant'
-  Write-Log "[$AppDisplayName] Compliant at '$($ok.Path)': '$($ok.Version)'"
+  Write-LogEntry "[$AppDisplayName] Compliant at '$($ok.Path)': '$($ok.Version)'"
   $Out | ConvertTo-Json -Compress | Out-Host
   exit 0
 }
 
 # --- No meaningful instance after evaluation ---
 $Out.Status = 'NotInstalled'
-Write-Log "[$AppDisplayName] No valid instances detected after evaluation."
+Write-LogEntry "[$AppDisplayName] No valid instances detected after evaluation."
 $Out | ConvertTo-Json -Compress | Out-Host
 
 # Explicit final exit to ensure Intune receives expected code

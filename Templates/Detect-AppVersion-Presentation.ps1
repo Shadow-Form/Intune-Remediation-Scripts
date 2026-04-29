@@ -7,6 +7,9 @@
     3. Compare with the required version
     4. Output JSON and return exit code
 #>
+    # Logging: Opt-in via `-EnableLogging` (boolean) and optional `-LogFile` parameter.
+    # When `-EnableLogging` is true and `-LogFile` is not supplied the script will
+    # derive a default at `Join-Path -Path $env:TEMP -ChildPath ("Detect-<SafeAppName>.log")`.
 
 param(
     # The friendly name of the app we are detecting
@@ -25,24 +28,42 @@ param(
     #   $true  = remediation should run (exit 1)
     #   $false = skip remediation for missing apps (exit 0)
     [bool]$RemediateIfMissing = $false
+    ,
+    # Enable local file logging when true; default is false to keep detection read-only
+    [bool]$EnableLogging = $false,
+    # Optional explicit log file path. When supplied the script writes to this file even if -EnableLogging is not set.
+    [string]$LogFile
 )
 
 # ------------------------------------------------------------
-# Minimal local logger
+# Minimal local logger (standardized)
 # ------------------------------------------------------------
-function Write-LocalLog {
+function Get-SafeFileName {
+    param([string]$Name)
+    $invalid = [System.IO.Path]::GetInvalidFileNameChars()
+    $clean = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
+    $clean = $clean.Trim().TrimEnd('.').TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($clean)) { $clean = 'Application' }
+    return $clean
+}
+
+function Write-LogEntry {
     param([string]$Message)
 
-    $LogDir = "C:\Logs"
-    if (-not (Test-Path $LogDir)) {
-        try { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null } catch { }
+    Write-Verbose $Message
+    if (-not $EnableLogging) { return }
+
+    if (-not $PSBoundParameters.ContainsKey('LogFile') -or [string]::IsNullOrWhiteSpace($LogFile)) {
+        $LogFile = Join-Path -Path $env:TEMP -ChildPath ("Detect-$(Get-SafeFileName -Name $AppDisplayName).log")
     }
 
-    $Safe = ($AppDisplayName -replace '[^A-Za-z0-9_-]', '_')
-    $LogFile = Join-Path $LogDir ("Detect-$Safe.log")
+    $logDir = Split-Path -Path $LogFile -Parent
+    if ($logDir -and -not (Test-Path -LiteralPath $logDir)) {
+        try { New-Item -Path $logDir -ItemType Directory -Force | Out-Null } catch { }
+    }
 
     $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    "$timestamp $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    try { Add-Content -LiteralPath $LogFile -Value "$timestamp $Message" } catch { }
 }
 
 # ------------------------------------------------------------
@@ -105,7 +126,7 @@ if ($findings.Count -eq 0) {
         App    = $AppDisplayName
         Status = 'NotInstalled'
     } | ConvertTo-Json -Compress
-    Write-LocalLog "Status=NotInstalled Expected=$ExpectedVersion"
+    Write-LogEntry "Status=NotInstalled Expected=$ExpectedVersion"
 
     if ($RemediateIfMissing) { exit 1 } else { exit 0 }
 }
@@ -121,7 +142,7 @@ foreach ($f in $findings) {
             Path    = $f.Path
             Version = $f.Version
         } | ConvertTo-Json -Compress
-        Write-LocalLog "Status=Compliant Path=$($f.Path) Version=$($f.Version)"
+        Write-LogEntry "Status=Compliant Path=$($f.Path) Version=$($f.Version)"
         exit 0
     }
 }
@@ -134,5 +155,5 @@ foreach ($f in $findings) {
     Status   = 'Outdated'
     Required = $ExpectedVersion
 } | ConvertTo-Json -Compress
-Write-LocalLog "Status=Outdated Expected=$ExpectedVersion Path=$($findings[0].Path) Detected=$($findings[0].Version)"
+Write-LogEntry "Status=Outdated Expected=$ExpectedVersion Path=$($findings[0].Path) Detected=$($findings[0].Version)"
 exit 1
