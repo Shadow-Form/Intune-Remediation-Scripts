@@ -55,6 +55,11 @@
         1 = Non-compliant (missing, malformed version, comparison error, or outdated)
 
     This file intentionally contains no tenant-specific or internal identifiers.
+
+    Logging: When `-EnableLogging $true` and `-LogFile` is not supplied the script derives a
+    default log file at `Join-Path -Path $env:TEMP -ChildPath ("Detect-<SafeAppName>.log")`.
+    Logs are written via the `Write-LogEntry` helper; detection scripts remain read-only unless
+    `-EnableLogging` is explicitly provided.
 #>
 
 [CmdletBinding(SupportsShouldProcess = $false)]
@@ -104,7 +109,7 @@ function Get-SafeFileName {
 if ($EnableLogging) {
     if (-not $PSBoundParameters.ContainsKey('LogFile') -or [string]::IsNullOrWhiteSpace($LogFile)) {
         $__safeName = Get-SafeFileName -Name $AppDisplayName
-        $LogFile = Join-Path $env:TEMP ("Install-$__safeName.log")
+        $LogFile = Join-Path -Path $env:TEMP -ChildPath ("Detect-$__safeName.log")
     }
 }
 else {
@@ -222,7 +227,7 @@ $intuneOutput = @{
 
 # ---------- Main ----------
 try {
-    if ($EnableLogging -and $LogFile) { New-DirectoryIfMissing -DirectoryPath (Split-Path -Path $LogFile) }
+    if ($EnableLogging -and $LogFile) { New-DirectoryIfMissing -DirectoryPath (Split-Path -Path $LogFile -Parent) }
 
     $operationSucceeded = Invoke-OperationRetry -MaxRetries $MaxRetries -RetryDelay $RetryDelay -Operation {
         $found = $false

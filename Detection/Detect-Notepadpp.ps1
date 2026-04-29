@@ -47,9 +47,16 @@ powershell -NoProfile -NonInteractive -File .\Detection\Detect-Notepadpp.ps1 -Ex
 powershell -NoProfile -NonInteractive -File .\Detection\Detect-Notepadpp.ps1 -ExpectedVersion 8.9.4 -EnableLogging $true -LogFile C:\Temp\Detect-Notepadpp.log
 
 .NOTES
-- Output: compact JSON written to stdout. Exit codes: 0 = Compliant, 1 = Non-compliant or Error.
-- Detection scripts are read-only by default; do not enable logging in production unless needed.
-- Last Updated : 2026-04-29
+#.NOTES
+# Output: compact JSON written to stdout. Exit codes: 0 = Compliant, 1 = Non-compliant or Error.
+# Detection scripts are read-only by default; do not enable logging in production unless needed.
+#
+# Logging: When `-EnableLogging $true` and `-LogFile` is not supplied the script derives a
+# default log file at `Join-Path -Path $env:TEMP -ChildPath ("Detect-<SafeAppName>.log")`.
+# Logs are written via the `Write-LogEntry` helper; detection scripts remain read-only unless
+# `-EnableLogging` is explicitly provided.
+#
+# Last Updated : 2026-04-29
 #>
 
 [CmdletBinding(SupportsShouldProcess = $false)]
@@ -101,14 +108,14 @@ if ($PSBoundParameters.ContainsKey('LogFile') -and -not [string]::IsNullOrWhiteS
 }
 elseif ($EnableLogging) {
     $safeName = Get-SafeFileName -Name $AppDisplayName
-    $LogFile = "C:\Logs\Detect-$safeName.log"
+    $LogFile = Join-Path -Path $env:TEMP -ChildPath ("Detect-$safeName.log")
 }
 else {
     $LogFile = $null
 }
 
 # ---------- Logging ----------
-function Write-Log {
+function Write-LogEntry {
     param ([string]$Message)
 
     # Console verbose (native)
@@ -117,14 +124,14 @@ function Write-Log {
     # Respect explicit logging opt-in
     if (-not $EnableLogging -or -not $LogFile) { return }
 
-    $logDirectory = Split-Path -Path $LogFile
+    $logDirectory = Split-Path -Path $LogFile -Parent
     if (-not (Test-Path $logDirectory)) {
         New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
     }
 
     for ($i = 1; $i -le $MaxLogRetries; $i++) {
         try {
-            Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+            Add-Content -LiteralPath $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
             break
         }
         catch [System.IO.IOException] {
@@ -149,12 +156,12 @@ function Invoke-OperationRetry {
     param ([int]$MaxRetries, [int]$RetryDelay, [scriptblock]$Operation)
     for ($i = 1; $i -le $MaxRetries; $i++) {
         try {
-            Write-Log "Attempt $i of $MaxRetries"
+            Write-LogEntry "Attempt $i of $MaxRetries"
             & $Operation
             return $true
         }
         catch {
-            Write-Log "Attempt $i failed $_"
+            Write-LogEntry "Attempt $i failed $_"
             if ($i -lt $MaxRetries) {
                 Start-Sleep -Seconds $RetryDelay
             }
@@ -299,7 +306,7 @@ $intuneOutput = @{
 
 # ---------- Main ----------
 try {
-    if ($LogFile) { New-DirectoryIfMissing -DirectoryPath (Split-Path -Path $LogFile) }
+    if ($LogFile) { New-DirectoryIfMissing -DirectoryPath (Split-Path -Path $LogFile -Parent) }
 
     $operationSucceeded = Invoke-OperationRetry -MaxRetries $MaxRetries -RetryDelay $RetryDelay -Operation {
         $found = $false
@@ -322,7 +329,7 @@ try {
                 $found = $true
 
                 $rawVersion = Get-FileVersionInfoSafe -Path $candidate
-                Write-Log "[$AppDisplayName] Detected version '$rawVersion' from '$candidate'"
+                Write-LogEntry "[$AppDisplayName] Detected version '$rawVersion' from '$candidate'"
 
                 $findings += [pscustomobject]@{
                     Source  = 'File'
@@ -341,7 +348,7 @@ try {
                 $found = $true
 
                 $rawVersion = Get-FileVersionInfoSafe -Path $uPath
-                Write-Log "[$AppDisplayName] Detected per-user version '$rawVersion' from '$uPath'"
+                Write-LogEntry "[$AppDisplayName] Detected per-user version '$rawVersion' from '$uPath'"
 
                 $findings += [pscustomobject]@{
                     Source  = 'File'
@@ -362,7 +369,7 @@ try {
                 $pathCandidate = $null
                 if ($displayIcon) { $pathCandidate = $displayIcon -replace '\"' } elseif ($r.InstallLocation) { $pathCandidate = $r.InstallLocation }
 
-                Write-Log "[$AppDisplayName] Detected registry entry '$($r.RegistryPath)' version '$version'"
+                Write-LogEntry "[$AppDisplayName] Detected registry entry '$($r.RegistryPath)' version '$version'"
 
                 $findings += [pscustomobject]@{
                     Source        = 'Registry'
@@ -374,11 +381,11 @@ try {
             }
         }
         catch {
-            Write-Log "[$AppDisplayName] Registry scan failed: $_"
+            Write-LogEntry "[$AppDisplayName] Registry scan failed: $_"
         }
 
         if (-not $found) {
-            Write-Log "[$AppDisplayName] No executable or registry entry found."
+            Write-LogEntry "[$AppDisplayName] No executable or registry entry found."
             throw "FileNotFound"
         }
 
@@ -389,18 +396,18 @@ try {
     # After a successful scan, evaluate all findings and decide final status
     if (-not $operationSucceeded) {
         $intuneOutput.Status = "NotInstalled"
-        Write-Log "[$AppDisplayName] Not installed on this system."
+        Write-LogEntry "[$AppDisplayName] Not installed on this system."
 
         if ($TriggerRemediationForMissingApp) {
             $msg = ("Summary: App='{0}'; Scope={1}; File='{2}'; Detected='{3}'; Expected='{4}'; Status={5}" -f `
                     $intuneOutput.AppName, $intuneOutput.InstallScope, $intuneOutput.FilePath, $intuneOutput.DetectedVersion, $intuneOutput.ExpectedVersion, $intuneOutput.Status)
-            Write-Log $msg
+            Write-LogEntry $msg
             $intuneOutput | ConvertTo-Json -Compress; exit 1
         }
         else {
             $msg = ("Summary: App='{0}'; Scope={1}; File='{2}'; Detected='{3}'; Expected='{4}'; Status={5}" -f `
                     $intuneOutput.AppName, $intuneOutput.InstallScope, $intuneOutput.FilePath, $intuneOutput.DetectedVersion, $intuneOutput.ExpectedVersion, $intuneOutput.Status)
-            Write-Log $msg
+            Write-LogEntry $msg
             $intuneOutput | ConvertTo-Json -Compress; exit 0
         }
     }
@@ -437,7 +444,7 @@ try {
         }
     }
     catch {
-        Write-Log "[$AppDisplayName] Registry re-scan failed: $_"
+        Write-LogEntry "[$AppDisplayName] Registry re-scan failed: $_"
     }
 
     # Evaluate findings: prefer to surface any MalformedVersion or Outdated instance (remediation)
@@ -474,7 +481,7 @@ try {
         $intuneOutput.DetectedVersion = $firstMalformed.Version
         $intuneOutput.InstallScope = $firstMalformed.Scope
         $intuneOutput.Status = 'MalformedVersion'
-        Write-Log "[$AppDisplayName] Malformed version detected: $($firstMalformed.Path) => $($firstMalformed.Version)"
+        Write-LogEntry "[$AppDisplayName] Malformed version detected: $($firstMalformed.Path) => $($firstMalformed.Version)"
         $intuneOutput | ConvertTo-Json -Compress; exit 1
     }
 
@@ -483,7 +490,7 @@ try {
         $intuneOutput.DetectedVersion = $firstOutdated.Version
         $intuneOutput.InstallScope = $firstOutdated.Scope
         $intuneOutput.Status = if ($firstOutdated.Scope -like '*User*') { 'UserScopeOutdated' } else { 'Outdated' }
-        Write-Log "[$AppDisplayName] Outdated instance detected: $($firstOutdated.Path) => $($firstOutdated.Version)"
+        Write-LogEntry "[$AppDisplayName] Outdated instance detected: $($firstOutdated.Path) => $($firstOutdated.Version)"
         $intuneOutput | ConvertTo-Json -Compress; exit 1
     }
 
@@ -492,21 +499,21 @@ try {
         $intuneOutput.DetectedVersion = $firstCompliant.Version
         $intuneOutput.InstallScope = $firstCompliant.Scope
         $intuneOutput.Status = 'Compliant'
-        Write-Log "[$AppDisplayName] Compliant instance detected: $($firstCompliant.Path) => $($firstCompliant.Version)"
+        Write-LogEntry "[$AppDisplayName] Compliant instance detected: $($firstCompliant.Path) => $($firstCompliant.Version)"
         $intuneOutput | ConvertTo-Json -Compress; exit 0
     }
 
     # If we get here, nothing meaningful was found
     $intuneOutput.Status = 'NotInstalled'
-    Write-Log "[$AppDisplayName] No valid instances detected after evaluation."
+    Write-LogEntry "[$AppDisplayName] No valid instances detected after evaluation."
     if ($TriggerRemediationForMissingApp) { $intuneOutput | ConvertTo-Json -Compress; exit 1 } else { $intuneOutput | ConvertTo-Json -Compress; exit 0 }
 
 }
 catch {
     $intuneOutput.Status = "Error"
-    Write-Log "[$AppDisplayName] An unexpected error occurred: $_"
+    Write-LogEntry "[$AppDisplayName] An unexpected error occurred: $_"
     $msg = ("Summary: App='{0}'; Scope={1}; File='{2}'; Detected='{3}'; Expected='{4}'; Status={5}" -f `
             $intuneOutput.AppName, $intuneOutput.InstallScope, $intuneOutput.FilePath, $intuneOutput.DetectedVersion, $intuneOutput.ExpectedVersion, $intuneOutput.Status)
-    Write-Log $msg
+    Write-LogEntry $msg
     $intuneOutput | ConvertTo-Json -Compress; exit 1
 }
