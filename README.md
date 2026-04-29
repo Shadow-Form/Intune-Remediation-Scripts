@@ -80,6 +80,27 @@ pwsh .\Remediate-Something.ps1
 
 ---
 
+## Detection & Remediation Summary
+
+- **Detection scripts**: Read-only by default. They scan file paths, per-user profiles, and (where included)
+  registry uninstall entries to detect installed software. Output is a compact JSON object written to
+  stdout and an exit code Intune understands. Detection will only write local files if explicitly enabled
+  via a logging parameter.
+- **Remediation scripts**: Idempotent and non-interactive. Remediations perform safe changes using quiet
+  installer switches, `ShouldProcess` where appropriate, and attempt to avoid destructive actions. They
+  should be tested in a controlled group before broad deployment.
+- **Exit codes (common patterns)**:
+  - `0` = Success / Compliant (no remediation required or remediation succeeded)
+  - `1` = Non-compliant or remediation required/failed (script-dependent semantics)
+  - Additional exit codes may be used by remediation scripts to signal specific failures (see individual
+    script headers for details).
+- **Idempotence & Safety**: Remediation scripts compare versions or check state before making changes to
+  ensure repeated runs are safe. Detection scripts avoid altering system state unless logging is enabled.
+- **Caveats**: Validate scripts in a test environment. Do not include tenant-specific secrets or identifiers
+  in scripts. Network downloads and installer execution depend on target device connectivity and local policy.
+
+---
+
 ## Requirements
 - Windows 10/11 device managed through Microsoft Intune
 - Appropriate Intune permissions to create and deploy remediations
