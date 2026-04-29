@@ -1,3 +1,62 @@
+[<#
+.SYNOPSIS
+    Detects whether an application (Mozilla Firefox) is installed and meets the expected version.
+
+.DESCRIPTION
+    Scans machine-scoped paths and optional per-user profile paths to locate the application's
+    executable, normalizes the discovered version, and compares it against an expected minimum.
+    Emits a compact JSON object to stdout describing the result and returns exit codes used by
+    Intune remediation workflows.
+
+.PARAMETER AppDisplayName
+    Friendly application name used in logs and JSON output.
+
+.PARAMETER MachinePaths
+    One or more absolute machine-scoped paths to check for the application executable.
+
+.PARAMETER PerUserRelativePath
+    Relative path under each user profile (resolved under C:\Users) to discover per-user installs.
+
+.PARAMETER ExpectedVersion
+    Minimum acceptable version. If any detected instance is >= this value the script reports compliant.
+
+.PARAMETER LogFile
+    Optional path to a log file when logging is enabled.
+
+.PARAMETER EnableLogging
+    Boolean flag. When `$true` the script may write a local log file; default is `$false` (read-only).
+
+.PARAMETER MaxRetries
+    Number of attempts for the main scan operation.
+
+.PARAMETER RetryDelay
+    Seconds to wait between scan retries.
+
+.PARAMETER TriggerRemediationForMissingApp
+    When `$true` the script returns a non-zero exit code if the app is missing (triggers remediation).
+
+.PARAMETER VerboseMode
+    Compatibility switch: when present sets verbose preference when `-Verbose` isn't provided.
+
+.EXAMPLE
+    # Check Firefox version (no file logging)
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Firefox.ps1 -ExpectedVersion 150.0
+
+.EXAMPLE
+    # Enable local file logging
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Firefox.ps1 -ExpectedVersion 150.0 -EnableLogging $true
+
+.NOTES
+    Detection behavior: read-only by default. To opt in to file logging pass `-EnableLogging $true` and
+    optionally `-LogFile` to control the path. Output is a compact JSON object and the script uses
+    exit codes intended for Intune remediations:
+
+        0 = Compliant (installed version >= expected)
+        1 = Non-compliant (missing, malformed version, comparison error, or outdated)
+
+    This file intentionally contains no tenant-specific or internal identifiers.
+#>
+
 [CmdletBinding(SupportsShouldProcess = $false)]
 param (
     # --- App-specific parameters (set these per application) ---
@@ -14,7 +73,7 @@ param (
 
     # --- Common controls ---
     [string]$LogFile,
-    [switch]$EnableLogging,
+    [bool]$EnableLogging = $false,
     [int]$MaxRetries = 3,
     [int]$RetryDelay = 5,
     [bool]$TriggerRemediationForMissingApp = $false,
