@@ -1,15 +1,44 @@
 <#
-    Intune Proactive Remediation – Minimal Detection Script
-    -------------------------------------------------------
-    This script demonstrates the core PR detection workflow:
-    1. Check one or more paths for an app
-    2. Read the file version
-    3. Compare with the required version
-    4. Output JSON and return exit code
+.SYNOPSIS
+Detect installed application version and optionally log to C:\Logs.
+
+.DESCRIPTION
+Checks one or more file paths for an application's file version and compares it
+to the required version. Emits compact JSON for Intune proactive remediation and
+returns exit codes: 0 = Compliant or remediation skipped, 1 = Not compliant or
+remediation requested.
+
+Logging:
+- Use `-EnableLogging` to write log entries to a default presentation location
+    (C:\Logs\Detect-<SafeAppName>.log) when `-LogFile` is not supplied.
+- Use `-LogFile` to specify an explicit path. If supplied it is used regardless
+    of `-EnableLogging`.
+
+.PARAMETER AppDisplayName
+Friendly name of the application used in JSON and log filenames.
+
+.PARAMETER MachinePaths
+One or more file paths to inspect (exe/dll).
+
+.PARAMETER ExpectedVersion
+Minimum required version string.
+
+.PARAMETER RemediateIfMissing
+When true, detection signals remediation should run if the app is missing.
+
+.PARAMETER EnableLogging
+Switch to enable local file logging (default: $false).
+
+.PARAMETER LogFile
+Optional explicit log file path (overrides default).
+
+.EXAMPLE
+PS> .\Detect-AppVersion-Presentation.ps1 -AppDisplayName 'MyApp' -ExpectedVersion '1.2.3' -EnableLogging
+
+.NOTES
+Author: Your Name
+LastUpdated: 2026-04-30
 #>
-    # Logging: Opt-in via `-EnableLogging` (boolean) and optional `-LogFile` parameter.
-    # When `-EnableLogging` is true and `-LogFile` is not supplied the script will
-    # derive a default at `Join-Path -Path $env:TEMP -ChildPath ("Detect-<SafeAppName>.log")`.
 
 param(
     # The friendly name of the app we are detecting
@@ -51,10 +80,11 @@ function Write-LogEntry {
     param([string]$Message)
 
     Write-Verbose $Message
-    if (-not $EnableLogging) { return }
+    # Honor explicit LogFile even if EnableLogging is not set
+    if (-not $EnableLogging -and -not $PSBoundParameters.ContainsKey('LogFile')) { return }
 
     if (-not $PSBoundParameters.ContainsKey('LogFile') -or [string]::IsNullOrWhiteSpace($LogFile)) {
-        $LogFile = Join-Path -Path $env:TEMP -ChildPath ("Detect-$(Get-SafeFileName -Name $AppDisplayName).log")
+        $LogFile = Join-Path -Path 'C:\Logs' -ChildPath ("Detect-$(Get-SafeFileName -Name $AppDisplayName).log")
     }
 
     $logDir = Split-Path -Path $LogFile -Parent
