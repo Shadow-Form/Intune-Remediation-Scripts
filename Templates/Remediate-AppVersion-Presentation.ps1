@@ -1,17 +1,49 @@
-<#
-  Intune Proactive Remediation – Minimal Remediation Script
-  ---------------------------------------------------------
-  Purpose:
-    If this script is running, detection has already determined:
-      “The app is missing or outdated — remediation should run.”
+#<
+#.SYNOPSIS
+Download and install an application installer, then verify the installed version; optional logging to C:\Logs.
 
-  This script:
-    1. Downloads the installer from a single URL (Blob storage, etc.)
-    2. Executes MSI or EXE with provided arguments
-    3. Verifies installation
-    4. Outputs JSON and uses clear exit codes:
-         0 = Fixed / Installed / UpToDate after install
-         1 = Failed to install
+#.DESCRIPTION
+Downloads a single installer (MSI or EXE), executes it with provided arguments,
+verifies the installed version against `-ExpectedVersion`, and emits compact
+JSON and exit codes: 0 = Fixed / Installed / UpToDate after install; 1 = Failed
+to install or still outdated.
+
+Behavior:
+- Script is non-interactive and designed to be idempotent where possible.
+- Logging is opt-in via `-EnableLogging`. If `-LogFile` is provided it is used
+regardless of `-EnableLogging`.
+- Default log file when not supplied: `C:\Logs\Remediate-<SafeAppName>.log`.
+
+.PARAMETER AppDisplayName
+Friendly name for logs and JSON.
+
+.PARAMETER MachinePaths
+Paths used for post-install verification.
+
+.PARAMETER ExpectedVersion
+Minimum required version.
+
+.PARAMETER InstallerType
+`msi` or `exe`.
+
+.PARAMETER InstallerArgs
+Arguments for the installer (supports `<PATH>` token replacement).
+
+.PARAMETER InstallerUrl
+URL to download the installer from (mandatory).
+
+.PARAMETER EnableLogging
+Switch to enable local file logging (default: $false).
+
+.PARAMETER LogFile
+Optional explicit log file path (overrides default).
+
+.EXAMPLE
+PS> .\Remediate-AppVersion-Presentation.ps1 -AppDisplayName 'MyApp' -InstallerUrl 'https://...' -InstallerType 'msi' -InstallerArgs '/i <PATH> /qn' -EnableLogging
+
+.NOTES
+Author: Your Name
+LastUpdated: 2026-04-30
 #>
 
 param(
@@ -25,33 +57,52 @@ param(
     [string]$ExpectedVersion,
 
     # MSI or EXE installer type
-    [ValidateSet('msi','exe')]
+    [ValidateSet('msi', 'exe')]
     [string]$InstallerType,
 
     # Installer argument string (may contain <PATH> placeholder)
     [string]$InstallerArgs,
 
     # Single installer source (Azure blob storage, etc.)
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
     [string]$InstallerUrl
+    ,
+    # Enable local file logging when true; default is false to avoid noisy remediation runs
+    [bool]$EnableLogging = $false,
+    # Optional explicit log file path. When supplied the script writes to this file even if -EnableLogging is not set.
+    [string]$LogFile
 )
 
 # ------------------------------------------------------------
-# Minimal local logger
+# Minimal local logger (standardized to match detection)
 # ------------------------------------------------------------
-function Write-LocalLog {
+function Get-SafeFileName {
+    param([string]$Name)
+    $invalid = [System.IO.Path]::GetInvalidFileNameChars()
+    $clean = -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
+    $clean = $clean.Trim().TrimEnd('.').TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($clean)) { $clean = 'Application' }
+    return $clean
+}
+
+function Write-LogEntry {
     param([string]$Message)
 
-    $LogDir = "C:\Logs"
-    if (-not (Test-Path $LogDir)) {
-        try { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null } catch { }
+    Write-Verbose $Message
+    # Honor explicit LogFile even if EnableLogging is not set
+    if (-not $EnableLogging -and -not $PSBoundParameters.ContainsKey('LogFile')) { return }
+
+    if (-not $PSBoundParameters.ContainsKey('LogFile') -or [string]::IsNullOrWhiteSpace($LogFile)) {
+        $LogFile = Join-Path -Path 'C:\Logs' -ChildPath ("Remediate-$(Get-SafeFileName -Name $AppDisplayName).log")
     }
 
-    $Safe = ($AppDisplayName -replace '[^A-Za-z0-9_-]', '_')
-    $LogFile = Join-Path $LogDir ("Remediate-$Safe.log")
+    $logDir = Split-Path -Path $LogFile -Parent
+    if ($logDir -and -not (Test-Path -LiteralPath $logDir)) {
+        try { New-Item -Path $logDir -ItemType Directory -Force | Out-Null } catch { }
+    }
 
     $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    "$timestamp $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    try { Add-Content -LiteralPath $LogFile -Value "$timestamp $Message" } catch { }
 }
 
 # ------------------------------------------------------------
@@ -82,7 +133,8 @@ function Get-FileVersion {
     try {
         $raw = (Get-Item $Path).VersionInfo.ProductVersion
         return Convert-Version $raw
-    } catch { return '' }
+    }
+    catch { return '' }
 }
 
 # ------------------------------------------------------------
@@ -109,9 +161,9 @@ function Get-InstalledVersion {
 # Step 0.1 - Initialize output object (JSON for Intune)
 # ------------------------------------------------------------
 $Out = @{
-    App      = $AppDisplayName
-    Status   = "Unknown"
-    Required = $ExpectedVersion
+    App       = $AppDisplayName
+    Status    = "Unknown"
+    Required  = $ExpectedVersion
     Installer = @{
         Type = $InstallerType
         Path = ""
@@ -119,13 +171,13 @@ $Out = @{
     }
 }
 
-Write-LocalLog "Starting remediation for $AppDisplayName (expected version $ExpectedVersion)"
+Write-LogEntry "Starting remediation for $AppDisplayName (expected version $ExpectedVersion)"
 
 # ------------------------------------------------------------
 # Step 0.2 - Derive a local installer filename automatically
 # ------------------------------------------------------------
 $FileName = [System.IO.Path]::GetFileName(([System.Uri]$InstallerUrl).AbsolutePath)
-if (:IsNullOrWhiteSpace($FileName)) {
+if ([string]::IsNullOrWhiteSpace($FileName)) {
     $FileName = "$($AppDisplayName)-installer.bin"
 }
 
@@ -134,14 +186,14 @@ $InstallerLocalPath = Join-Path $env:TEMP $FileName
 # ------------------------------------------------------------
 # Step 1 - Download installer (single attempt)
 # ------------------------------------------------------------
-Write-LocalLog "Downloading installer from $InstallerUrl"
+Write-LogEntry "Downloading installer from $InstallerUrl"
 
 try {
     Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerLocalPath -UseBasicParsing
     $Out.Installer.Path = $InstallerLocalPath
 }
 catch {
-    Write-LocalLog "Download failed"
+    Write-LogEntry "Download failed"
     $Out.Status = "DownloadFailed"
     $Out | ConvertTo-Json -Compress | Out-Host
     exit 1
@@ -167,10 +219,10 @@ try {
         $proc = Start-Process -FilePath $InstallerLocalPath -ArgumentList $EffectiveArgs -Wait -PassThru -NoNewWindow
         $Out.Installer.Exit = $proc.ExitCode
     }
-    Write-LocalLog "Installer finished with exit code $($proc.ExitCode)"
+    Write-LogEntry "Installer finished with exit code $($proc.ExitCode)"
 }
 catch {
-    Write-LocalLog "Installer execution error"
+    Write-LogEntry "Installer execution error"
     $Out.Status = "InstallerError"
     $Out | ConvertTo-Json -Compress | Out-Host
     exit 1
@@ -180,19 +232,19 @@ catch {
 # Step 4 - Post-install verification
 # ------------------------------------------------------------
 $AfterVersion = Get-InstalledVersion -Paths $MachinePaths
-Write-LocalLog "Post-install detected version: $AfterVersion"
+Write-LogEntry "Post-install detected version: $AfterVersion"
 
 # ------------------------------------------------------------
 # Step 5 - Output (JSON for Intune) and exit code
 # ------------------------------------------------------------
 if ($AfterVersion -and (Test-VersionCompliance $AfterVersion $ExpectedVersion)) {
-    $Out.Status  = "Fixed"
+    $Out.Status = "Fixed"
     $Out.Version = $AfterVersion
     $Out | ConvertTo-Json -Compress | Out-Host
     exit 0
 }
 
-$Out.Status  = "InstallFailedOrOutdated"
+$Out.Status = "InstallFailedOrOutdated"
 $Out.Version = $AfterVersion
 $Out | ConvertTo-Json -Compress | Out-Host
 exit 1
