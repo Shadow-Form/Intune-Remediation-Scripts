@@ -19,7 +19,6 @@ param(
     [string]$InstallerArgs = "/i <PATH> /qn /norestart ALLUSERS=1",
 
     # Single installer source (Azure blob storage, etc.)
-    [Parameter(Mandatory = $true)]
     [string]$InstallerUrl,
 
     # Enable local file logging when true; default is false to avoid noisy remediation runs
