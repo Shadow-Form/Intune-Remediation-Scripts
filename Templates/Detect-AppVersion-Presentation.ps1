@@ -1,45 +1,3 @@
-<#
-.SYNOPSIS
-Detect installed application version and optionally log to C:\Logs.
-
-.DESCRIPTION
-Checks one or more file paths for an application's file version and compares it
-to the required version. Emits compact JSON for Intune proactive remediation and
-returns exit codes: 0 = Compliant or remediation skipped, 1 = Not compliant or
-remediation requested.
-
-Logging:
-- Use `-EnableLogging` to write log entries to a default presentation location
-    (C:\Logs\Detect-<SafeAppName>.log) when `-LogFile` is not supplied.
-- Use `-LogFile` to specify an explicit path. If supplied it is used regardless
-    of `-EnableLogging`.
-
-.PARAMETER AppDisplayName
-Friendly name of the application used in JSON and log filenames.
-
-.PARAMETER MachinePaths
-One or more file paths to inspect (exe/dll).
-
-.PARAMETER ExpectedVersion
-Minimum required version string.
-
-.PARAMETER RemediateIfMissing
-When true, detection signals remediation should run if the app is missing.
-
-.PARAMETER EnableLogging
-Switch to enable local file logging (default: $false).
-
-.PARAMETER LogFile
-Optional explicit log file path (overrides default).
-
-.EXAMPLE
-PS> .\Detect-AppVersion-Presentation.ps1 -AppDisplayName 'MyApp' -ExpectedVersion '1.2.3' -EnableLogging
-
-.NOTES
-Author: Your Name
-LastUpdated: 2026-04-30
-#>
-
 param(
     # The friendly name of the app we are detecting
     [string]$AppDisplayName = "My Application",
@@ -56,8 +14,8 @@ param(
     # If the app is missing:
     #   $true  = remediation should run (exit 1)
     #   $false = skip remediation for missing apps (exit 0)
-    [bool]$RemediateIfMissing = $false
-    ,
+    [bool]$RemediateIfMissing = $false,
+    
     # Enable local file logging when true; default is false to keep detection read-only
     [bool]$EnableLogging = $false,
     # Optional explicit log file path. When supplied the script writes to this file even if -EnableLogging is not set.

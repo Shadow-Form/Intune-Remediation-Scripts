@@ -1,72 +1,27 @@
-#<
-#.SYNOPSIS
-Download and install an application installer, then verify the installed version; optional logging to C:\Logs.
-
-#.DESCRIPTION
-Downloads a single installer (MSI or EXE), executes it with provided arguments,
-verifies the installed version against `-ExpectedVersion`, and emits compact
-JSON and exit codes: 0 = Fixed / Installed / UpToDate after install; 1 = Failed
-to install or still outdated.
-
-Behavior:
-- Script is non-interactive and designed to be idempotent where possible.
-- Logging is opt-in via `-EnableLogging`. If `-LogFile` is provided it is used
-regardless of `-EnableLogging`.
-- Default log file when not supplied: `C:\Logs\Remediate-<SafeAppName>.log`.
-
-.PARAMETER AppDisplayName
-Friendly name for logs and JSON.
-
-.PARAMETER MachinePaths
-Paths used for post-install verification.
-
-.PARAMETER ExpectedVersion
-Minimum required version.
-
-.PARAMETER InstallerType
-`msi` or `exe`.
-
-.PARAMETER InstallerArgs
-Arguments for the installer (supports `<PATH>` token replacement).
-
-.PARAMETER InstallerUrl
-URL to download the installer from (mandatory).
-
-.PARAMETER EnableLogging
-Switch to enable local file logging (default: $false).
-
-.PARAMETER LogFile
-Optional explicit log file path (overrides default).
-
-.EXAMPLE
-PS> .\Remediate-AppVersion-Presentation.ps1 -AppDisplayName 'MyApp' -InstallerUrl 'https://...' -InstallerType 'msi' -InstallerArgs '/i <PATH> /qn' -EnableLogging
-
-.NOTES
-Author: Your Name
-LastUpdated: 2026-04-30
-#>
-
 param(
     # Friendly name for logs and JSON
-    [string]$AppDisplayName,
+    [string]$AppDisplayName = "My Application",
 
     # One or more paths for post-install version check
-    [string[]]$MachinePaths,
+    [string[]]$MachinePaths = @(
+        "C:\Program Files\MyApp\MyApp.exe",
+        "C:\Program Files (x86)\MyApp\MyApp.exe"
+    ),
 
     # Required minimum version
-    [string]$ExpectedVersion,
+    [string]$ExpectedVersion = "1.0.0",
 
     # MSI or EXE installer type
     [ValidateSet('msi', 'exe')]
     [string]$InstallerType,
 
     # Installer argument string (may contain <PATH> placeholder)
-    [string]$InstallerArgs,
+    [string]$InstallerArgs = "/i <PATH> /qn /norestart ALLUSERS=1",
 
     # Single installer source (Azure blob storage, etc.)
     [Parameter(Mandatory = $true)]
-    [string]$InstallerUrl
-    ,
+    [string]$InstallerUrl,
+
     # Enable local file logging when true; default is false to avoid noisy remediation runs
     [bool]$EnableLogging = $false,
     # Optional explicit log file path. When supplied the script writes to this file even if -EnableLogging is not set.
