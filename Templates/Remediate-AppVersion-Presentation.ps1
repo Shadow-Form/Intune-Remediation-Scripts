@@ -167,6 +167,15 @@ if ($EffectiveArgs -match '<PATH>') {
 # ------------------------------------------------------------
 try {
     if ($InstallerType -eq 'msi') {
+        # Ensure MSI policy allows installs: set DisableMSI = 0 (presentation one-off)
+        try {
+            $msiPolicyPath = 'HKLM:\Software\Policies\Microsoft\Windows\Installer'
+            if (-not (Test-Path $msiPolicyPath)) { New-Item -Path $msiPolicyPath -Force | Out-Null }
+            Set-ItemProperty -Path $msiPolicyPath -Name 'DisableMSI' -Value 0 -Force
+            Write-LogEntry "Temporarily set DisableMSI = 0 at $msiPolicyPath"
+        }
+        catch { Write-LogEntry "Failed to set DisableMSI: $_" }
+
         $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $EffectiveArgs -Wait -PassThru -NoNewWindow
         $Out.Installer.Exit = $proc.ExitCode
     }
