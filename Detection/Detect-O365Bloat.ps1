@@ -47,7 +47,7 @@ function Test-O365ProPlusRetail {
         $keys = Get-ChildItem -Path $UninstallRegPath -ErrorAction Stop
     }
     catch {
-        Write-Verbose "Failed to read uninstall registry: $($_.Exception.Message)"
+        Write-Verbose ("Failed to read uninstall registry: {0}" -f $_.Exception.Message)
         $keys = @()
     }
     foreach ($key in $keys) {
@@ -66,7 +66,7 @@ function Test-HomeOfficeApps {
         $keys = Get-ChildItem -Path $UninstallRegPath -ErrorAction Stop
     }
     catch {
-        Write-Verbose "Failed to read uninstall registry: $($_.Exception.Message)"
+        Write-Verbose ("Failed to read uninstall registry: {0}" -f $_.Exception.Message)
         $keys = @()
     }
     foreach ($key in $keys) {
@@ -90,7 +90,7 @@ function Test-OneDriveStandalone {
         $keys = Get-ChildItem -Path $UninstallRegPath -ErrorAction Stop
     }
     catch {
-        Write-Verbose "Failed to read uninstall registry: $($_.Exception.Message)"
+        Write-Verbose ("Failed to read uninstall registry: {0}" -f $_.Exception.Message)
         $keys = @()
     }
     foreach ($key in $keys) {
@@ -111,7 +111,7 @@ function Test-OneDriveStandalone {
 
 function Get-NonEntOfficeApps {
     $foundApps = @()
-    try { $keys = Get-ChildItem -Path $UninstallRegPath -ErrorAction Stop } catch { Write-Verbose "Failed to read uninstall registry: $($_.Exception.Message)"; $keys = @() }
+    try { $keys = Get-ChildItem -Path $UninstallRegPath -ErrorAction Stop } catch { Write-Verbose ("Failed to read uninstall registry: {0}" -f $_.Exception.Message); $keys = @() }
     foreach ($key in $keys) {
         if (
             $key.PSChildName -like 'O365HomePremRetail*' -or
@@ -163,7 +163,7 @@ try {
     $users = Get-ChildItem -Path $UserProfilesPath -Directory -ErrorAction Stop
 }
 catch {
-    Write-Verbose "Failed to enumerate profiles: $($_.Exception.Message)"
+    Write-Verbose ("Failed to enumerate profiles: {0}" -f $_.Exception.Message)
     $users = @()
 }
 $users = $users | Where-Object { $_.Name -notin $excludeProfiles }
