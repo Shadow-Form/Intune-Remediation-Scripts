@@ -118,7 +118,7 @@ param (
     [string]$AdditionalArguments = "",
 
     # --- Logging & retries ---
-    [switch]$EnableLogging = $false,
+    [bool]$EnableLogging = $false,
     [string]$InstallerLogPath = "",
     [ValidateRange(1, 10)]
     [int]$MaxRetries = 3,
