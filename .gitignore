@@ -15,6 +15,7 @@
 *.env.local
 .local/
 *.secrets.json
+*.secrets.yaml
 
 # Ignore OS-level junk
 Thumbs.db
