@@ -16,13 +16,13 @@ param(
     [string]$InstallerType = 'exe',
 
     # Installer argument string (may contain <PATH> placeholder)
-    [string]$InstallerArgs = "/i <PATH> /qn /norestart ALLUSERS=1",
+    [string]$InstallerArgs = "-ms",
 
     # Single installer source (Azure blob storage, etc.)
     [string]$InstallerUrl = 'https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US&type=full',
 
     # Enable local file logging when true; default is false to avoid noisy remediation runs
-    [bool]$EnableLogging = $false,
+    [bool]$EnableLogging = $true,
     # Optional explicit log file path. When supplied the script writes to this file even if -EnableLogging is not set.
     [string]$LogFile
 )
