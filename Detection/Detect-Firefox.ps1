@@ -40,11 +40,11 @@
 
 .EXAMPLE
     # Check Firefox version (no file logging)
-    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Firefox.ps1 -ExpectedVersion 150.0
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Firefox.ps1 -ExpectedVersion 151.0.3
 
 .EXAMPLE
     # Enable local file logging
-    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Firefox.ps1 -ExpectedVersion 150.0 -EnableLogging $true
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Firefox.ps1 -ExpectedVersion 151.0.3 -EnableLogging $true
 
 .NOTES
     Detection behavior: read-only by default. To opt in to file logging pass `-EnableLogging $true` and
@@ -74,7 +74,7 @@ param (
     [string[]]$PerUserRelativePath = @(
         "AppData\Local\Programs\Mozilla Firefox\firefox.exe"
     ),
-    [string]$ExpectedVersion = "150.0",
+    [string]$ExpectedVersion = "151.0.3",
 
     # --- Common controls ---
     [string]$LogFile,
