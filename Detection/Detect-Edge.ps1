@@ -40,11 +40,11 @@
 
 .EXAMPLE
     # Check Edge version (no file logging)
-    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Edge.ps1 -ExpectedVersion 147.0.3912.98
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Edge.ps1 -ExpectedVersion 148.0.3967.96
 
 .EXAMPLE
     # Enable local file logging
-    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Edge.ps1 -ExpectedVersion 147.0.3912.98 -EnableLogging $true
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Edge.ps1 -ExpectedVersion 148.0.3967.96 -EnableLogging $true
 
 .NOTES
     Detection behavior: read-only by default. To opt in to file logging pass `-EnableLogging $true` and
@@ -77,7 +77,7 @@ param (
         "AppData\Local\Programs\Microsoft\Edge\msedge.exe",
         "AppData\Local\Programs\Microsoft\Edge\new_msedge.exe"
     ),
-    [string]$ExpectedVersion = "147.0.3912.98",
+    [string]$ExpectedVersion = "148.0.3967.96",
 
     # --- Common controls ---
     [string]$LogFile,
