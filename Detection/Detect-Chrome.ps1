@@ -40,11 +40,11 @@ Compatibility switch: when present sets verbose preference when `-Verbose` isn't
 
 .EXAMPLE
     # Check Chrome version (no file logging)
-    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Chrome.ps1 -ExpectedVersion 147.0.7727.138
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Chrome.ps1 -ExpectedVersion 148.0.7778.217
 
 .EXAMPLE
     # Enable local file logging
-    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Chrome.ps1 -ExpectedVersion 147.0.7727.138 -EnableLogging $true
+    powershell -NoProfile -NonInteractive -File .\Detection\Detect-Chrome.ps1 -ExpectedVersion 148.0.7778.217 -EnableLogging $true
 
 .NOTES
     Detection behavior: read-only by default. To opt in to file logging pass `-EnableLogging $true` and
@@ -74,7 +74,7 @@ param (
     [string[]]$PerUserRelativePath = @(
         "AppData\Local\Programs\Google\Chrome\Application\chrome.exe"
     ),
-    [string]$ExpectedVersion = "147.0.7727.138",
+    [string]$ExpectedVersion = "148.0.7778.217",
 
     # --- Common controls ---
     [string]$LogFile,
