@@ -105,6 +105,6 @@ try {
     }
 }
 catch {
-    Write-Output ("Verification failed: cannot read {0}\{1} — {2}" -f $regPath, $regName, $_.Exception.Message)
+    Write-Output ("Verification failed: cannot read {0}\{1} - {2}" -f $regPath, $regName, $_.Exception.Message)
     exit 1
 }
